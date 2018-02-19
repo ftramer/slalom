@@ -4,6 +4,9 @@ import tensorflow as tf
 from slalom import imagenet
 from slalom.utils import Results
 from slalom.quant import Conv2DQ, DenseQ
+from preprocessing.vgg_preprocessing import \
+    _aspect_preserving_resize, _central_crop, _RESIZE_SIDE_MIN
+from preprocessing.preprocessing_factory import get_preprocessing
 import sys
 
 from keras.applications.vgg16 import VGG16
@@ -11,7 +14,15 @@ from keras.applications.inception_v3 import InceptionV3
 from keras.applications.imagenet_utils import decode_predictions
 from keras.applications.imagenet_utils import preprocess_input
 from keras.layers import Conv2D, Dense
+import keras.backend as K
 
+
+def preprocess_vgg(image):
+    image = _aspect_preserving_resize(image, _RESIZE_SIDE_MIN)
+    image = _central_crop([image], 224, 224)[0]
+    image.set_shape([224, 224, 3])
+    image = tf.to_float(image)
+    return preprocess_input(image)
 
 def size_to_mb(s, type_bytes=4):
     return (type_bytes * s) / (1.0 * 1024**2)
@@ -34,10 +45,10 @@ def print_model_size(model):
     print("Total Size: {:.2f} MB".format(size_to_mb(tot_size)))
 
 
-def test_forward(sess, x, logits, quant=False):
+def test_forward(sess, x, logits, preprocess, quant=False):
 
     dataset_images, labels = imagenet.load_validation(
-        args.input_dir, args.batch_size, preprocess=preprocess_input)
+        args.input_dir, args.batch_size, preprocess=preprocess)
 
     num_batches = args.max_num_batches
 
@@ -50,9 +61,7 @@ def test_forward(sess, x, logits, quant=False):
         images, true_labels = sess.run([dataset_images, labels])
 
         res.start_timer()
-        preds = sess.run(logits, feed_dict={x: images})
-        print(preds)
-        print(true_labels)
+        preds = sess.run(logits, feed_dict={x: images, K.learning_phase(): 0})
         res.end_timer()
 
         res.record_acc(preds, true_labels)
@@ -71,10 +80,12 @@ def main(_):
             images = tf.placeholder(dtype=tf.float32, shape=(args.batch_size, 224, 224, 3))
             num_classes = 1000
             model = VGG16(include_top=True, weights='imagenet', input_tensor=images, input_shape=None, pooling=None, classes=num_classes)
+            preprocess = preprocess_vgg
         elif args.model_name in ['inception_v3']:
             images = tf.placeholder(dtype=tf.float32, shape=(args.batch_size, 299, 299, 3))
             num_classes = 1000
             model = InceptionV3(include_top=True, weights='imagenet', input_tensor=images, input_shape=None, pooling=None, classes=num_classes)
+            preprocess = lambda x: get_preprocessing('inception_v3')(x, 299, 299)
         else:
             raise AttributeError("unknown model {}".format(args.model_name))
 
@@ -84,7 +95,7 @@ def main(_):
         if args.test_name == 'model_size':
             print_model_size(model)
         elif args.test_name == 'forward':
-            test_forward(sess, images, logits)
+            test_forward(sess, images, logits, preprocess)
 
 
 if __name__ == '__main__':
