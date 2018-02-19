@@ -11,9 +11,9 @@ import sys
 
 from keras.applications.vgg16 import VGG16
 from keras.applications.inception_v3 import InceptionV3
-from keras.applications.imagenet_utils import decode_predictions
 from keras.applications.imagenet_utils import preprocess_input
 from keras.layers import Conv2D, Dense
+from keras import Model
 import keras.backend as K
 
 
@@ -24,12 +24,20 @@ def preprocess_vgg(image):
     image = tf.to_float(image)
     return preprocess_input(image)
 
+
 def size_to_mb(s, type_bytes=4):
     return (type_bytes * s) / (1.0 * 1024**2)
 
 
 def quantize(model):
-    return model
+    layers = model.layers
+    x = layers[0].input
+    for i in range(0, len(layers)):
+        x = layers[i](x)
+
+    # Final touch
+    result_model = Model(input=layers[0].input, output=x)
+    return result_model
 
 
 def print_model_size(model):
@@ -45,7 +53,14 @@ def print_model_size(model):
     print("Total Size: {:.2f} MB".format(size_to_mb(tot_size)))
 
 
-def test_forward(sess, x, logits, preprocess, quant=False):
+def test_forward(sess, x, model, preprocess, quant=False):
+
+    model.summary()
+    if quant:
+        model = quantize(model)
+        model.summary()
+
+    logits = model(x)
 
     dataset_images, labels = imagenet.load_validation(
         args.input_dir, args.batch_size, preprocess=preprocess)
@@ -89,13 +104,10 @@ def main(_):
         else:
             raise AttributeError("unknown model {}".format(args.model_name))
 
-        labels = tf.placeholder(dtype=tf.float32, shape=(args.batch_size, num_classes))
-        logits = model.output
-
         if args.test_name == 'model_size':
             print_model_size(model)
         elif args.test_name == 'forward':
-            test_forward(sess, images, logits, preprocess)
+            test_forward(sess, images, model, preprocess)
 
 
 if __name__ == '__main__':
