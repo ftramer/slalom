@@ -16,6 +16,7 @@ def print_model_size(sess):
     tot_size = 0.0
     ops = sess.graph.get_operations()
     for op in ops:
+        print(op.name)
         op_name = op.name.split('/')[-1]
         if op_name in ['Conv2D', 'MatMul']:
             assert(len(op.values()) == 1)
