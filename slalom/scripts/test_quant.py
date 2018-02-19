@@ -1,39 +1,43 @@
 import numpy as np
 import tensorflow as tf
 
-from nets import nets_factory
-from preprocessing import preprocessing_factory
 from slalom import imagenet
 from slalom.utils import Results
+from slalom.quant import Conv2DQ, DenseQ
 import sys
+
+from keras.applications.vgg16 import VGG16
+from keras.applications.inception_v3 import InceptionV3
+from keras.applications.imagenet_utils import decode_predictions
+from keras.applications.imagenet_utils import preprocess_input
+from keras.layers import Conv2D, Dense
 
 
 def size_to_mb(s, type_bytes=4):
     return (type_bytes * s) / (1.0 * 1024**2)
 
 
-def print_model_size(sess):
+def quantize(model):
+    return model
+
+
+def print_model_size(model):
     tot_size = 0.0
-    ops = sess.graph.get_operations()
-    for op in ops:
-        print(op.name)
-        op_name = op.name.split('/')[-1]
-        if op_name in ['Conv2D', 'MatMul', 'convolution']:
-            assert(len(op.values()) == 1)
-            print([x for x in op.inputs])
-            output_size = np.prod(op.values()[0].shape, dtype=np.int32)
-            print("{:.2f} MB".format(size_to_mb(output_size)))
-            tot_size += output_size
+
+    for layer in model.layers:
+        print(layer.name)
+        if layer.__class__ in [Conv2D, Dense]:
+            layer_size = np.prod(layer.output.get_shape().as_list()[1:])
+            tot_size += layer_size
+            print("Layer {}: {:.4f} MB".format(layer.name, size_to_mb(layer_size)))
 
     print("Total Size: {:.2f} MB".format(size_to_mb(tot_size)))
 
 
-def test_forward_quant(sess, x, logits):
-    preprocess = preprocessing_factory.get_preprocessing(args.model_name,
-                                                         is_training=False)
+def test_forward(sess, x, logits, quant=False):
 
     dataset_images, labels = imagenet.load_validation(
-        args.input_dir, args.batch_size, preprocess=preprocess)
+        args.input_dir, args.batch_size, preprocess=preprocess_input)
 
     num_batches = args.max_num_batches
 
@@ -47,6 +51,8 @@ def test_forward_quant(sess, x, logits):
 
         res.start_timer()
         preds = sess.run(logits, feed_dict={x: images})
+        print(preds)
+        print(true_labels)
         res.end_timer()
 
         res.record_acc(preds, true_labels)
@@ -62,27 +68,23 @@ def main(_):
     with tf.Session() as sess:
 
         if args.model_name in ['vgg_16']:
+            images = tf.placeholder(dtype=tf.float32, shape=(args.batch_size, 224, 224, 3))
             num_classes = 1000
+            model = VGG16(include_top=True, weights='imagenet', input_tensor=images, input_shape=None, pooling=None, classes=num_classes)
         elif args.model_name in ['inception_v3']:
-            num_classes = 1001
+            images = tf.placeholder(dtype=tf.float32, shape=(args.batch_size, 299, 299, 3))
+            num_classes = 1000
+            model = InceptionV3(include_top=True, weights='imagenet', input_tensor=images, input_shape=None, pooling=None, classes=num_classes)
         else:
             raise AttributeError("unknown model {}".format(args.model_name))
 
-        network_fn = nets_factory.get_network_fn(
-            args.model_name, num_classes=num_classes, is_training=False
-        )
-
-        h, w = network_fn.default_image_size, network_fn.default_image_size
-        images = tf.placeholder(dtype=tf.float32, shape=(args.batch_size, h, w, 3))
         labels = tf.placeholder(dtype=tf.float32, shape=(args.batch_size, num_classes))
-        logits, _ = network_fn(images)
-        loss = tf.nn.softmax_cross_entropy_with_logits(labels=labels, logits=logits)
-        
+        logits = model.output
 
         if args.test_name == 'model_size':
-            print_model_size(sess)
+            print_model_size(model)
         elif args.test_name == 'forward':
-            test_forward_quant(sess, images, logits)
+            test_forward(sess, images, logits)
 
 
 if __name__ == '__main__':
