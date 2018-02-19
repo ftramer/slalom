@@ -17,8 +17,9 @@ def print_model_size(sess):
     ops = sess.graph.get_operations()
     for op in ops:
         op_name = op.name.split('/')[-1]
-        if op_name in ['Conv2D', 'MatMul']:
+        if op_name in ['Conv2D', 'MatMul', 'convolution']:
             assert(len(op.values()) == 1)
+            print([x for x in op.inputs])
             output_size = np.prod(op.values()[0].shape, dtype=np.int32)
             print("{:.2f} MB".format(size_to_mb(output_size)))
             tot_size += output_size
@@ -71,8 +72,11 @@ def main(_):
         )
 
         h, w = network_fn.default_image_size, network_fn.default_image_size
-        images = tf.placeholder(dtype=tf.float32, shape=(1, h, w, 3))
+        images = tf.placeholder(dtype=tf.float32, shape=(args.batch_size, h, w, 3))
+        labels = tf.placeholder(dtype=tf.float32, shape=(args.batch_size, num_classes))
         logits, _ = network_fn(images)
+        loss = tf.nn.softmax_cross_entropy_with_logits(labels=labels, logits=logits)
+        
 
         if args.test_name == 'model_size':
             print_model_size(sess)
