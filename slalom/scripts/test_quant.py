@@ -11,6 +11,7 @@ import sys
 
 from keras.applications.vgg16 import VGG16
 from keras.applications.inception_v3 import InceptionV3
+from keras.applications.mobilenet import MobileNet
 from keras.applications.imagenet_utils import preprocess_input
 from keras.layers import Conv2D, Dense
 from keras import Model
@@ -101,6 +102,11 @@ def main(_):
             num_classes = 1000
             model = InceptionV3(include_top=True, weights='imagenet', input_tensor=images, input_shape=None, pooling=None, classes=num_classes)
             preprocess = lambda x: get_preprocessing('inception_v3')(x, 299, 299)
+        elif args.model_name in ['mobilenet']:
+            images = tf.placeholder(dtype=tf.float32, shape=(args.batch_size, 224, 224, 3))
+            num_classes = 1000
+            model = MobileNet(include_top=True, weights='imagenet', input_tensor=images, input_shape=None, pooling=None, classes=num_classes)
+            preprocess = lambda x: get_preprocessing('mobilenet_v1')(x, 224, 224)
         else:
             raise AttributeError("unknown model {}".format(args.model_name))
 
@@ -116,7 +122,7 @@ if __name__ == '__main__':
     parser.add_argument('test_name', type=str,
                         choices=['model_size', 'forward', 'backward'])
     parser.add_argument('model_name', type=str,
-                        choices=['vgg_16', 'inception_v3'])
+                        choices=['vgg_16', 'inception_v3', 'mobilenet'])
 
     parser.add_argument('--input_dir', type=str,
                         default='/home/ubuntu/imagenet/',
