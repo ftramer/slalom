@@ -8,7 +8,10 @@ from timeit import default_timer as timer
 
 class Results(object):
 
-    def __init__(self, k=5):
+    def __init__(self, acc=True, time=True, k=5):
+        self.acc = acc
+        self.time = time
+
         self.top1_acc = 0.0
         self.topk_acc = 0.0
         self.tot_times = []
@@ -19,8 +22,10 @@ class Results(object):
     def start_timer(self):
         self.start = timer()
 
-    def end_timer(self):
+    def end_timer(self, size=None):
         self.tot_times.append(timer() - self.start)
+        if size is not None:
+            self.pred_counts.append(size)
 
     def record_acc(self, preds, true_labels):
         top1, topk = get_topk_acc(preds, true_labels, k=self.k)
@@ -29,13 +34,23 @@ class Results(object):
         self.pred_counts.append(len(preds))
 
     def print_results(self):
-        print("\ttop1 err: {:.1f}".format(100 * (1.0 - self.top1_acc / np.sum(self.pred_counts))))
-        print("\ttop{} err: {:.1f}".format(self.k, 100 * (1.0 - self.topk_acc / np.sum(self.pred_counts))))
-        if len(self.tot_times) > 1:
-            print("\tprocess one image per {:.3f} s".format(np.sum(self.tot_times[1:]) / (1.0*np.sum(self.pred_counts[1:]))))
-        else:
-            print("\tprocess one image per {:.3f} s".format(np.sum(self.tot_times) / (1.0*np.sum(self.pred_counts))))
+        assert len(self.pred_counts) == len(self.tot_times)
 
+        if self.acc:
+            print("\ttop1 err: {:.1f}".format(100 * (1.0 - self.top1_acc / np.sum(self.pred_counts))))
+            print("\ttop{} err: {:.1f}".format(self.k, 100 * (1.0 - self.topk_acc / np.sum(self.pred_counts))))
+
+        if not self.time:
+            return
+
+        if len(self.tot_times) > 1:
+            # skip the first batch that is always slow on GPU
+            avg_time = np.sum(self.tot_times[1:]) / (1.0*np.sum(self.pred_counts[1:]))
+        else:
+            avg_time = np.sum(self.tot_times) / (1.0*np.sum(self.pred_counts))
+
+        real_time = self.tot_times[-1] / (1.0*self.pred_counts[-1])
+        print("\tprocess one image per {:.3f} s ({:.3f} s realtime)".format(avg_time, real_time))
 
 def get_topk_acc(preds, true_labels, k=5):
     preds = preds.argsort(axis=1)[:, -k:][:, ::-1] + 1
