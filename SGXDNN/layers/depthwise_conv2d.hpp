@@ -406,6 +406,7 @@ namespace SGXDNN
         }
 
 		inline void preproc_verif_X(T* input, double* temp, int h, int w, int ch_in) {
+			assert(ch_in % 8 == 0);
 			for (int i=0; i<ch_in; i++) {
 				for (int r=0; r<REPS; r++) {
 					temp[r*ch_in + i] = bias_r_.data()[r*ch_in + i];
@@ -424,28 +425,31 @@ namespace SGXDNN
 
 		inline void preproc_verif_Z(T* extra_data, T* output, double* temp, int out_image_size, int ch_out) {
 			assert(ch_out % 8 == 0);
-			__m128 zero = _mm_set_ps1(0);
-			__m128 six = _mm_set_ps1(6 * 256 * 256);
-			__m128 shift = _mm_set_ps1(1.0/256);
+
+			__m256 z, relu;
+			__m256d z0, z1, rr0, rr1;
 
 			for (int i=0; i<out_image_size; i++) {
 				__m256d rl[REPS];
+				// duplicate r in a vector
 				for (int r=0; r<REPS; r++) {
 					rl[r] = _mm256_broadcast_sd(r_left_.data() + (r*out_image_size + i));
 				}
 
-				for (int j=0; j<ch_out; j+=4) {
-					__m128 z = _mm_load_ps(extra_data + (i*ch_out + j));
+				for (int j=0; j<ch_out; j+=8) {
+					z = _mm256_load_ps(extra_data + (i*ch_out + j));
+					relu = relu6_avx(z);
+					_mm256_store_ps(output + (i*ch_out + j), relu);
 
-					// RELU6
-					__m128 relu = _mm_round_ps(_mm_mul_ps(_mm_min_ps(_mm_max_ps(z, zero), six), shift), _MM_FROUND_CUR_DIRECTION);
-					_mm_store_ps(output + (i*ch_out + j), relu);
+					extract_two_doubles(z, z0, z1);
 
-					__m256d z_d = _mm256_cvtps_pd(z);
 					for (int r=0; r<REPS; r++) {
-						__m256d prod = _mm256_mul_pd(z_d, rl[r]);
-						__m256d curr = _mm256_load_pd(temp + (r*ch_out + j));
-						_mm256_store_pd(temp + (r*ch_out + j), _mm256_sub_pd(curr, prod));
+						__m256d prod0 = _mm256_mul_pd(z0, rl[r]);
+						__m256d prod1 = _mm256_mul_pd(z1, rl[r]);
+						__m256d curr0 = _mm256_load_pd(temp + (r*ch_out + j));
+						__m256d curr1 = _mm256_load_pd(temp + (r*ch_out + j + 4));
+						_mm256_store_pd(temp + (r*ch_out + j), _mm256_sub_pd(curr0, prod0));
+						_mm256_store_pd(temp + (r*ch_out + j + 4), _mm256_sub_pd(curr1, prod1));
 					}
 				}
 			}

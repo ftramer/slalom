@@ -539,20 +539,25 @@ void sep_conv2d_verif_preproc_intermediate_act(int batch, int h, int w, int ch_i
 	}
 
 	int out_image_size = h*w;
+	__m256 z;
+	__m256d z0, z1;
 	for (int i=0; i<out_image_size; i++) {
 		__m256d rl[REPS];
 		for (int r=0; r<REPS; r++) {
 			rl[r] = _mm256_broadcast_sd(r_left_data + (r*out_image_size + i));
 		}
 
-		for (int j=0; j<ch_out; j+=4) {
-			__m128 z = _mm_load_ps(Z_data + (i*ch_out + j));
+		for (int j=0; j<ch_out; j+=8) {
+			z = _mm256_load_ps(Z_data + (i*ch_out + j));
+			extract_two_doubles(z, z0, z1);
 
-			__m256d z_d = _mm256_cvtps_pd(z);
 			for (int r=0; r<REPS; r++) {
-				__m256d prod = _mm256_mul_pd(z_d, rl[r]);
-				__m256d curr = _mm256_load_pd(temp.data() + (r*ch_out + j));
-				_mm256_store_pd(temp.data() + (r*ch_out + j), _mm256_sub_pd(curr, prod));
+				__m256d prod0 = _mm256_mul_pd(z0, rl[r]);
+				__m256d prod1 = _mm256_mul_pd(z1, rl[r]);
+				__m256d curr0 = _mm256_load_pd(temp.data() + (r*ch_out + j));
+				__m256d curr1 = _mm256_load_pd(temp.data() + (r*ch_out + j + 4));
+				_mm256_store_pd(temp.data() + (r*ch_out + j), _mm256_sub_pd(curr0, prod0));
+				_mm256_store_pd(temp.data() + (r*ch_out + j + 4), _mm256_sub_pd(curr1, prod1));
 			}
 		}
 	}

@@ -36,3 +36,16 @@
 
 # python
 *.pyc
+
+# SGX build files
+.config_HW_PRERELEASE_x64
+App/Enclave_u.c
+App/Enclave_u.h
+Enclave/Enclave_t.c
+Enclave/Enclave_t.h
+slalom_app
+
+# outputs
+results/
+*.json
+

@@ -756,8 +756,11 @@ namespace SGXDNN
 					// compute Z*r_right and activation(Z) in a single loop
 					if (activation_type_ == "relu") {
 						preproc_verif_pointwise_Z_memfused(relu_avx, extra_data, output_map.data());
-					} else {
+					} else if (activation_type_ == "relu6") {
 						preproc_verif_pointwise_Z_memfused(relu6_avx, extra_data, output_map.data());
+					} else {
+						assert(activation_type_ == "linear" || activation_type_ == "softmax");
+						preproc_verif_pointwise_Z_memfused(id_avx, extra_data, output_map.data());
 					}
 
 					// check equality mod p
@@ -806,6 +809,7 @@ namespace SGXDNN
 				if (activation_type_ == "relu") {
 					preproc_verif_Z_memfused(relu_avx, extra_data, output_map.data());
 				} else {
+					assert(activation_type_ == "relu6");
 					preproc_verif_Z_memfused(relu6_avx, extra_data, output_map.data());
 				}
 

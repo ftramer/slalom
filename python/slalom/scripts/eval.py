@@ -60,7 +60,7 @@ def main(_):
         with tf.Session(config=config) as sess:
 
             with tf.device(device):
-                model, model_info = get_model(args.model_name, args.batch_size, include_top=True)
+                model, model_info = get_model(args.model_name, args.batch_size, include_top=not args.no_top)
             
             dataset_images, labels = imagenet.load_validation(
                 args.input_dir, args.batch_size, preprocess=model_info['preprocess'], num_preprocessing_threads=1)
@@ -192,6 +192,8 @@ if __name__ == '__main__':
     parser.add_argument('--use_sgx', action='store_true')
     parser.add_argument('--verify_batched', action='store_true',
                         help='Use batched verification.')
+    parser.add_argument('--no_top', action='store_true',
+                        help='Omit top part of network.')
     args = parser.parse_args()
 
     tf.app.run()

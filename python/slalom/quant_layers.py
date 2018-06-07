@@ -11,9 +11,6 @@ from keras.applications.mobilenet import DepthwiseConv2D, relu6
 import keras.backend as K
 import numpy as np
 
-# requires GPU fmod in TensorFlow
-from tensorflow.python.ops.gen_math_ops import mod as fmod
-
 # special Kernel to compute x + q * y (mod p)
 fmod_module = tf.load_op_library('./App/cuda_fmod.so')
 
@@ -26,8 +23,8 @@ inv_q = 1.0 / q
 
 
 def remainder(x, p):
-    #return fmod(x, p)
     return fmod_module.fmod(x, p=p)
+
 
 def log2(x):
     num = tf.log(x)
@@ -107,6 +104,12 @@ class ActivationQ(Layer):
                     act = tf.reshape(K.mean(act, [1, 2]), (None, 1, 1, ch))
 
                 outputs = K.round(act / self.range_w)
+
+                if self.log:
+                    outputs = tf.Print(outputs, [log2(tf.reduce_max(tf.abs(outputs))), tf.reduce_mean(tf.abs(outputs)),
+                                         tf.greater_equal(log2(tf.reduce_max(tf.abs(outputs))), np.log2(MID))],
+                                   message="Activation log: ")
+
                 return outputs
 
             return inputs
@@ -629,7 +632,8 @@ class Conv2DQ(Conv2D):
 
         if self.log:
             outputs = tf.Print(outputs, [log2(tf.reduce_max(tf.abs(outputs))), tf.reduce_mean(tf.abs(outputs)),
-                                         tf.greater_equal(log2(tf.reduce_max(tf.abs(outputs))), np.log2(MID))])
+                                         tf.greater_equal(log2(tf.reduce_max(tf.abs(outputs))), np.log2(MID))],
+                               message="Conv2D log: ")
 
         if early_return == 'prod' or early_return == 'bias':
             # Conv(Z, w)
@@ -802,7 +806,9 @@ class DepthwiseConv2DQ(DepthwiseConv2D):
             data_format=self.data_format)
 
         if self.log:
-            outputs = tf.Print(outputs, [tf.reduce_max(tf.abs(outputs))])
+            outputs = tf.Print(outputs, [log2(tf.reduce_max(tf.abs(outputs))), tf.reduce_mean(tf.abs(outputs)),
+                                         tf.greater_equal(log2(tf.reduce_max(tf.abs(outputs))), np.log2(MID))],
+                               message="DepthConv log: ")
 
         if early_return == 'prod':
             # X .* W
@@ -853,7 +859,13 @@ class GlobalAveragePooling2DQ(GlobalAveragePooling2D):
         ch = inputs.get_shape().as_list()[3]
         res = tf.reshape(K.mean(inputs, axis=[1, 2]), [-1, 1, 1, ch])
         if self.quantize:
-            return K.round(res) 
+            return K.round(res)
+
+        if self.log:
+            res = tf.Print(res, [log2(tf.reduce_max(tf.abs(res))), tf.reduce_mean(tf.abs(res)),
+                                         tf.greater_equal(log2(tf.reduce_max(tf.abs(res))), np.log2(MID))],
+                               message="AvgPool log: ")
+
         return res
 
     def compute_output_shape(self, input_shape):

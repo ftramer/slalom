@@ -9,6 +9,7 @@ from keras.layers import Conv2D, Dense
 import tensorflow as tf
 import numpy as np
 from timeit import default_timer as timer
+import sys
 
 
 class Results(object):
@@ -62,6 +63,7 @@ class Results(object):
 
         real_time = self.tot_times[-1] / (1.0 * self.pred_counts[-1])
         print("\tprocess one image per {:.3f} s ({:.3f} s realtime)".format(avg_time, real_time))
+        sys.stdout.flush()
 
 
 def get_topk_acc(preds, true_labels, k=5):

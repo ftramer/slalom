@@ -50,7 +50,7 @@ namespace SGXDNN
             T* output_mem_ = mem_pool_->alloc<T>(batch * output_size_);
             auto output_map = TensorMap<T, 4>(output_mem_, output_shape_);
 
-			Eigen::array<int, 2> mean_dims({1, 2 /* dimensions to reduce */});
+			Eigen::array<int, 2> mean_dims({1, 2});
 			output_map = input.mean(mean_dims).reshape(output_shape_);
 
             mem_pool_->release(input.data());
@@ -65,7 +65,7 @@ namespace SGXDNN
             T* output_mem_ = mem_pool_->alloc<T>(batch * output_size_);
             auto output_map = TensorMap<T, 4>(output_mem_, output_shape_);
 
-            Eigen::array<int, 2> mean_dims({1, 2 /* dimensions to reduce */});
+            Eigen::array<int, 2> mean_dims({1, 2});
             output_map = (input.mean(mean_dims).reshape(output_shape_)).round();
 
             mem_pool_->release(input.data());
