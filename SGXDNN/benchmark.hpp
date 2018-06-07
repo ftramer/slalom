@@ -734,9 +734,9 @@ void benchmark(int n_threads) {
 	void* device_ptr = nullptr;
 #endif
 
-	//benchmark_dense(mem_pool, device_ptr);
+	benchmark_dense(mem_pool, device_ptr);
 	benchmark_conv(mem_pool, device_ptr);
-	//benchmark_separable(mem_pool, device_ptr);
+	benchmark_separable(mem_pool, device_ptr);
 }
 
 #endif
