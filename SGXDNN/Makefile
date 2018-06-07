@@ -4,7 +4,6 @@ App_Cpp_Objects := $(App_Cpp_Files:%.cpp=bin/%.o)
 App_ASM_Files := sgxaes_asm.S
 App_ASM_Objects := $(App_ASM_Files:%.S=bin/%.o)
 
-#App_Cpp_Include_Paths := -I../Include/eigen3_orig -I../Include -Icrypto
 App_Cpp_Include_Paths := -I../Include/eigen -I../Include -Icrypto
 App_C_Flags := -fPIC $(App_Cpp_Include_Paths) -O3 -march=native -Wno-enum-compare -fopenmp
 App_Cpp_Flags := -std=c++11 $(App_C_Flags)
