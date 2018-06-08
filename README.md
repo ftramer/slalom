@@ -1,8 +1,8 @@
 # SLALOM
 **Fast, Verifiable and Private Execution of Neural Networks in Trusted Hardware.**
 
-SLALOM is a framework for accelerating Deep Neural Network evaluations in trusted hardware, by selectively outsourcing computations to an untrusted (but faster) colocated device while preserving the integrity and privacy of the computation.
-In its current implementation, SLALOM runs the evaluation of a neural network inside an Intel SGX enclave, and delegates the computation of all linear layers to an untrusted GPU on the same mahcine.
+Slalom is a framework for accelerating Deep Neural Network evaluations in trusted hardware, by selectively outsourcing computations to an untrusted (but faster) colocated device while preserving the integrity and privacy of the computation.
+In its current implementation, Slalom runs the evaluation of a neural network inside an Intel SGX enclave, and delegates the computation of all linear layers to an untrusted GPU on the same mahcine.
 
 This project is based on the following paper:
 
@@ -18,7 +18,7 @@ Florian Tramèr and Dan Boneh
 REAL-WORLD DATA OR COMPUTATION!**
 
 This software is a proof-of-concept meant for 
-performance testing of the SLALOM framework ONLY.
+performance testing of the Slalom framework ONLY.
 It is full of security vulnerabilities that 
 facilitate testing, debugging and performance 
 measurements. In any real-world deployment, 
@@ -30,14 +30,14 @@ Some parts that have a negligble impact on performance but that are required for
 ## Background
 Trusted hardware (e.g., [Intel SGX](https://software.intel.com/en-us/sgx), [AMD TrusZone](https://www.amd.com/en/technologies/security), or the open-source [Sanctum](https://eprint.iacr.org/2015/564.pdf) architecture) can construct isolated execution environments ("enclaves") for running security or privacy sensitive applications. Using trusted hardware, it is possible to execute a full neural network evaluation in an enclave, but this comes at a relatively steep cost in performance. Existing trusted hardware platforms currently only support low-end computation devices (e.g, not your brand-new shiny GPU or multicore server CPU), and incur additional costs for isolating computations and handling large memory regions.
 
-SLALOM uses a novel approach that consists in *delegating* computations from a (slow) trusted environment to a co-located untrusted---yet much faster---device. SLALOM builds upon a [well-known](https://en.wikipedia.org/wiki/Freivalds%27_algorithm) efficient method for verifying outsourced matrix multiplications, which we adapt to enable (privacy-preserving) verification of the main linear operators used in modern neural networks (i.e., convolutions, separable convolutions, and dense layers). Nonlinear computations (e.g., activations, pooling, etc.) are computed locally by the trusted enclave, but represent only a tiny fraction of the total execution time, which is dominated by linear operations. 
+Slalom uses a novel approach that consists in *delegating* computations from a (slow) trusted environment to a co-located untrusted---yet much faster---device. Slalom builds upon a [well-known](https://en.wikipedia.org/wiki/Freivalds%27_algorithm) efficient method for verifying outsourced matrix multiplications, which we adapt to enable (privacy-preserving) verification of the main linear operators used in modern neural networks (i.e., convolutions, separable convolutions, and dense layers). Nonlinear computations (e.g., activations, pooling, etc.) are computed locally by the trusted enclave, but represent only a tiny fraction of the total execution time, which is dominated by linear operations. 
 
 ## Installation
 
-After cloning the SLALOM repository, you can build as follows:
+After cloning the Slalom repository, you can build as follows:
 
 1. Follow the [instructions](https://github.com/intel/linux-sgx) to install the Intel SGX driver and SDK for Linux.
-2. [Build TensorFlow from source with GPU support](https://www.tensorflow.org/install/install_sources) (this requires a working CUDA installation)
+2. [Build TensorFlow (version 1.8.0) from source with GPU support](https://www.tensorflow.org/install/install_sources) (this requires a working CUDA installation)
 3. Install the remaining python dependencies:
 ```
 cd slalom
@@ -60,7 +60,7 @@ cd slalom
 make
 ```
 
-## Running SLALOM
+## Running Slalom
 
 ### Evaluation with integrity
 To evaluate a forward pass of a network, run:
