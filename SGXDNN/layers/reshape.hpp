@@ -46,9 +46,9 @@ namespace SGXDNN
             output_shape_[0] = batch;
        	    auto output_map = TensorMap<T, 4>(input.data(), output_shape_);
 
-			printf("reshaping from (%ld, %ld, %ld, %ld) to (%ld, %ld, %ld, %ld)\n", 
-				   input.dimension(0), input.dimension(1), input.dimension(2), input.dimension(3),
-				   output_map.dimension(0), output_map.dimension(1), output_map.dimension(2), output_map.dimension(3));
+			//printf("reshaping from (%ld, %ld, %ld, %ld) to (%ld, %ld, %ld, %ld)\n",
+			//	   input.dimension(0), input.dimension(1), input.dimension(2), input.dimension(3),
+			//	   output_map.dimension(0), output_map.dimension(1), output_map.dimension(2), output_map.dimension(3));
             return output_map;
 		}
 		

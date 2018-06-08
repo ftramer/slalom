@@ -492,7 +492,9 @@ namespace SGXDNN
 					mem_pool_->release(input.data());
 
 					sgx_time_t loop1 = get_time();
-					printf("after loop1 in %.4f s\n", get_elapsed_time(start, loop1));
+					if (TIMING) {
+						printf("after loop1 in %.4f s\n", get_elapsed_time(start, loop1));
+					}
 
 					// compute W*r_ch and sum(r_b) * b * r_ch
 					array2d W_dims2d{{kernel_.dimension(0) * kernel_.dimension(1) * kernel_.dimension(2), kernel_.dimension(3)}};
@@ -509,8 +511,9 @@ namespace SGXDNN
 					}
 
 					sgx_time_t conv = get_time();
-					printf("after conv in %.4f s\n", get_elapsed_time(start, conv));
-
+					if (TIMING) {
+						printf("after conv in %.4f s\n", get_elapsed_time(start, conv));
+					}
 					// copy presumed output into enclave
 					T* output_mem_ = mem_pool_->alloc<T>(batch * output_size_);
 					#ifndef USE_SGX
@@ -521,7 +524,9 @@ namespace SGXDNN
 					auto output_map = TensorMap<T, 4>(output_mem_, output_shape_);
 
 					sgx_time_t alloc = get_time();
-					printf("after alloc in %.4f s\n", get_elapsed_time(start, alloc));
+					if (TIMING) {
+						printf("after alloc in %.4f s\n", get_elapsed_time(start, alloc));
+					}
 					temp.setZero();
 				
 					// compute r_b * Z
@@ -535,8 +540,9 @@ namespace SGXDNN
 					}
 
 					sgx_time_t loop2 = get_time();
-					printf("after loop2 in %.4f s\n", get_elapsed_time(start, loop2));
-
+					if (TIMING) {
+						printf("after loop2 in %.4f s\n", get_elapsed_time(start, loop2));
+					}
 					// temp is of shape (REPS, h_out, w_out, ch_out)	
 					// we have r_b * Z, and we want r_b*Z*r_ch - r_b*bias*r_ch
 					Tensor<double, 1> bias_r(REPS);
@@ -564,12 +570,14 @@ namespace SGXDNN
 					}
 
 					sgx_time_t rZr = get_time();
-					printf("after r_Z_r in %.4f s\n", get_elapsed_time(start, rZr));
-
+					if (TIMING) {
+						printf("after r_Z_r in %.4f s\n", get_elapsed_time(start, rZr));
+					}
 					out1 = out1.unaryExpr([&](const double x) { return mod(x, p_verif); });
 					Tensor<bool, 0> eq = (out1 == static_cast<double>(0)).all();
-					printf("eq: %d\n", eq.data()[0]);
-
+					if (TIMING) {
+						printf("eq: %d\n", eq.data()[0]);
+					}
 					r_b.resize(0,0);
 					r_ch.resize(0,0);
 					temp.resize(0);
@@ -644,8 +652,9 @@ namespace SGXDNN
 
 					// check equality
 					Tensor<bool, 0> eq = (out1 == static_cast<double>(0)).all();
-					printf("eq: %d\n", eq.data()[0]);
-
+					if (TIMING) {
+						printf("eq: %d\n", eq.data()[0]);
+					}
 					sgx_time_t end = get_time();
 					double elapsed = get_elapsed_time(start, end);
 					if (TIMING) {
@@ -711,8 +720,9 @@ namespace SGXDNN
 					// check equality
 					Eigen::Tensor<bool, 0, Eigen::RowMajor, Eigen::DenseIndex> eq;
 					eq = (out1 == out3).all();
-					printf("eq: %d\n", eq.data()[0]);
-
+					if (TIMING) {
+						printf("eq: %d\n", eq.data()[0]);
+					}
 					sgx_time_t end = get_time();
 					double elapsed = get_elapsed_time(start, end);
 					if (TIMING) {
@@ -767,8 +777,9 @@ namespace SGXDNN
 					res_x_map = res_x_map - res_z_map;
 					REDUCE_MOD_TENSOR(res_x_map);
 					Tensor<bool, 0> eq = (res_x_map == static_cast<double>(0)).all();
-					printf("eq: %d\n", eq.data()[0]);
-
+					if (TIMING) {
+						printf("eq: %d\n", eq.data()[0]);
+					}
 					sgx_time_t end = get_time();
 					double elapsed = get_elapsed_time(start, end);
 					if (TIMING) {
@@ -798,7 +809,9 @@ namespace SGXDNN
 
 				// compute r_left * Conv(X, W*r_right) + r_left*bias*r_right
 				preproc_verif_X(input.data());
-				printf("r_inp_wr: %f, %f\n", mod_pos(res_x[0], p_verif), mod_pos(res_x[1], p_verif));
+				if (TIMING) {
+					printf("r_inp_wr: %f, %f\n", mod_pos(res_x[0], p_verif), mod_pos(res_x[1], p_verif));
+				}
 
 				// allocate output mem
 				mem_pool_->release(input.data());
@@ -813,7 +826,9 @@ namespace SGXDNN
 					preproc_verif_Z_memfused(relu6_avx, extra_data, output_map.data());
 				}
 
-				printf("r_out_r: %f, %f\n", mod_pos(res_z[0], p_verif), mod_pos(res_z[1], p_verif));
+				if (TIMING) {
+					printf("r_out_r: %f, %f\n", mod_pos(res_z[0], p_verif), mod_pos(res_z[1], p_verif));
+				}
 
 				mem_pool_->release(res_x);
 				mem_pool_->release(res_z);

@@ -132,11 +132,13 @@ extern "C" {
         sgx_time_t end_time;
         double elapsed;
 
-        start_time = get_time();
+        start_time = get_time_force();
 
         // loop over all layers
 		for (int i=0; i<model_float.layers.size(); i++) {
-			printf("before layer %d (%s)\n", i, model_float.layers[i]->name_.c_str());
+			if (TIMING) {
+				printf("before layer %d (%s)\n", i, model_float.layers[i]->name_.c_str());
+			}
 
 			sgx_time_t layer_start = get_time();
 			#ifdef EIGEN_USE_THREADS
@@ -148,14 +150,16 @@ extern "C" {
 			in_ptr = &temp_output;
 
 			sgx_time_t layer_end = get_time();
-            printf("layer %d required %4.4f sec\n", i, get_elapsed_time(layer_start, layer_end));
+			if (TIMING) {
+				printf("layer %d required %4.4f sec\n", i, get_elapsed_time(layer_start, layer_end));
+			}
 		}
 
 		// copy output outside enclave
 		std::copy(((float*)in_ptr->data()), ((float*)in_ptr->data()) + ((int)in_ptr->size()), output);
 		model_float.mem_pool->release(in_ptr->data());
 
-		end_time = get_time();
+		end_time = get_time_force();
         printf("total time: %4.4f sec\n", get_elapsed_time(start_time, end_time));
 	}
 
@@ -180,11 +184,13 @@ extern "C" {
         sgx_time_t end_time;
         double elapsed;
 
-        start_time = get_time();
+        start_time = get_time_force();
 
 		int linear_idx = 0;
 		for (int i=0; i<model_float.layers.size(); i++) {
-			printf("before layer %d (%s)\n", i, model_float.layers[i]->name_.c_str());
+			if (TIMING) {
+				printf("before layer %d (%s)\n", i, model_float.layers[i]->name_.c_str());
+			}
 
 			#ifdef USE_SGX
 			size_t aux_size = batch_size * model_float.layers[i]->output_size();
@@ -205,13 +211,15 @@ extern "C" {
 			}
 
 			sgx_time_t layer_end = get_time();
-			printf("layer %d required %4.4f sec\n", i, get_elapsed_time(layer_start, layer_end));
+			if (TIMING) {
+				printf("layer %d required %4.4f sec\n", i, get_elapsed_time(layer_start, layer_end));
+			}
 		}
 		
 		std::copy(((float*)in_ptr->data()), ((float*)in_ptr->data()) + ((int)in_ptr->size()), output);
 		model_float.mem_pool->release(in_ptr->data());
 
-		end_time = get_time();
+		end_time = get_time_force();
 		printf("total time: %4.4f sec\n", get_elapsed_time(start_time, end_time));
 	}
 
@@ -411,7 +419,6 @@ extern "C" {
 				// skip reshape layer for MobileNet
 				if (dynamic_cast<Conv2D<float>*>(next_layer.get()) == nullptr) {
 					assert(dynamic_cast<Reshape<float>*>(next_layer.get()) != nullptr);
-					printf("skipping Reshape layer...\n");
 					next_layer = model_float.layers[layer_idx + 2];
 				}
 				assert(dynamic_cast<Conv2D<float>*>(next_layer.get()) != nullptr);
@@ -425,11 +432,11 @@ extern "C" {
 
 		if (layer_idx < model_float.layers.size() -1) {
 			next_layer = model_float.layers[layer_idx + 1];
-			printf("in activation %s: prev layer: %s, curr layer: %s, next_layer: %s\n",
-					activation, prev_layer->name_.c_str(), curr_layer->name_.c_str(), next_layer->name_.c_str());
+			//printf("in activation %s: prev layer: %s, curr layer: %s, next_layer: %s\n",
+			//		activation, prev_layer->name_.c_str(), curr_layer->name_.c_str(), next_layer->name_.c_str());
 		} else {
-			printf("in activation %s: prev layer: %s, curr layer: %s\n",
-					activation, prev_layer->name_.c_str(), curr_layer->name_.c_str());
+			//printf("in activation %s: prev layer: %s, curr layer: %s\n",
+			//		activation, prev_layer->name_.c_str(), curr_layer->name_.c_str());
 		}
 
 		if (verbose || TIMING) {
@@ -547,9 +554,11 @@ extern "C" {
 							for (int i=0; i<h*w*REPS; i++) {
 								sum += params.res_z[i];
 							}
-							printf("r_out_r: %f\n", sum);
+							if (TIMING) { printf("r_out_r: %f\n", sum); }
 						} else {
-							printf("r_out_r: %f, %f\n", mod_pos(params.res_z[0], p_verif), mod_pos(params.res_z[1], p_verif));
+							if (TIMING) {
+								printf("r_out_r: %f, %f\n", mod_pos(params.res_z[0], p_verif), mod_pos(params.res_z[1], p_verif));
+							}
 							model_float.mem_pool->release(params.res_z_temp);
 						}
 
@@ -558,9 +567,13 @@ extern "C" {
 							for (int i=0; i<h*w*REPS; i++) {
 								sum += params.res_x[i];
 							}
-							printf("r_inp_wr: %f\n", sum);
+							if (TIMING) {
+								printf("r_inp_wr: %f\n", sum);
+							}
 						} else {
-							printf("r_inp_wr: %f, %f\n", mod_pos(params.res_x[0], p_verif), mod_pos(params.res_x[1], p_verif));
+							if (TIMING) {
+								printf("r_inp_wr: %f, %f\n", mod_pos(params.res_x[0], p_verif), mod_pos(params.res_x[1], p_verif));
+							}
 						}
 					}
 
@@ -683,8 +696,8 @@ extern "C" {
 		auto next_layer = model_float.layers[layer_idx + 1];
 		auto next2_layer = model_float.layers[layer_idx + 2];
 
-		printf("in maxpoolrelu: prev layer: %s, curr layer: %s, next layer: %s\n",
-				prev_layer->name_.c_str(), curr_layer->name_.c_str(), next_layer->name_.c_str());
+		//printf("in maxpoolrelu: prev layer: %s, curr layer: %s, next layer: %s\n",
+		//		prev_layer->name_.c_str(), curr_layer->name_.c_str(), next_layer->name_.c_str());
 		act_idx += 1;
 
 		assert(dynamic_cast<Activation<float>*>(curr_layer.get()) != nullptr);
@@ -695,7 +708,6 @@ extern "C" {
 			assert(dynamic_cast<Conv2D<float>*>(prev_layer.get()) != nullptr);
 			if (dynamic_cast<Conv2D<float>*>(next2_layer.get()) == nullptr) {
 				assert(dynamic_cast<Reshape<float>*>(next2_layer.get()) != nullptr);
-				printf("skipping Reshape layer...\n");
 				next2_layer = model_float.layers[layer_idx + 3];
 			}
 			assert(dynamic_cast<Conv2D<float>*>(next2_layer.get()) != nullptr);
@@ -788,7 +800,9 @@ extern "C" {
 						for (int i=0; i<h*w*REPS; i++) {
 							sum += conv2d_prev->res_z[i];
 						}
-						printf("r_out_r: %f\n", sum);
+						if (TIMING) {
+							printf("r_out_r: %f\n", sum);
+						}
 						model_float.mem_pool->release(conv2d_prev->res_z);
 					} else {
 						conv2d_prev->res_z = model_float.mem_pool->alloc<double>(REPS);
@@ -798,7 +812,9 @@ extern "C" {
 						TensorMap<double, 1> res_z_temp_map(conv2d_prev->res_z_temp, REPS);
 						res_z_temp_map.setZero();
 						conv2d_prev->preproc_verif_Z(relu_avx, blind_map.data());
-						printf("r_out_r: %f, %f\n", mod_pos(conv2d_prev->res_z[0], p_verif), mod_pos(conv2d_prev->res_z[1], p_verif));
+						if (TIMING) {
+							printf("r_out_r: %f, %f\n", mod_pos(conv2d_prev->res_z[0], p_verif), mod_pos(conv2d_prev->res_z[1], p_verif));
+						}
 						model_float.mem_pool->release(conv2d_prev->res_z);
 						model_float.mem_pool->release(conv2d_prev->res_z_temp);
 					}
@@ -855,12 +871,16 @@ extern "C" {
 						for (int i=0; i<conv2d_next->h*conv2d_next->w*REPS; i++) {
 							sum += conv2d_next->res_x[i];
 						}
-						printf("r_inp_wr: %f\n", sum);
+						if (TIMING) {
+							printf("r_inp_wr: %f\n", sum);
+						}
 						model_float.mem_pool->release(conv2d_next->res_x);
 					} else {
 						conv2d_next->res_x = model_float.mem_pool->alloc<double>(REPS);
 						conv2d_next->preproc_verif_X(out_map.data());
-						printf("r_inp_wr: %f, %f\n", mod_pos(conv2d_next->res_x[0], p_verif), mod_pos(conv2d_next->res_x[1], p_verif));
+						if (TIMING) {
+							printf("r_inp_wr: %f, %f\n", mod_pos(conv2d_next->res_x[0], p_verif), mod_pos(conv2d_next->res_x[1], p_verif));
+						}
 						model_float.mem_pool->release(conv2d_next->res_x);
 					}
 				}

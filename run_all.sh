@@ -6,7 +6,8 @@ mkdir -p results
 
 python -u -m python.slalom.scripts.benchmarks &> results/benchmarks.txt
 python -u -m python.slalom.scripts.benchmarks --use_sgx &> results/benchmarks_sgx.txt
-python -u -m python.slalom.scripts.benchmarks --threads=4 &> results/benchmarks_threaded.txt
+python -u -m python.slalom.scripts.benchmarks --threads=4 &> results/benchmarks_threaded_4.txt
+python -u -m python.slalom.scripts.benchmarks --threads=8 &> results/benchmarks_threaded_8.txt
 
 ###########
 ## VGG16 ##

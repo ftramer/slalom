@@ -62,7 +62,7 @@ class Results(object):
             avg_time = np.sum(self.tot_times) / (1.0 * np.sum(self.pred_counts))
 
         real_time = self.tot_times[-1] / (1.0 * self.pred_counts[-1])
-        print("\tprocess one image per {:.3f} s ({:.3f} s realtime)".format(avg_time, real_time))
+        print("\tprocess one image per {:.4f} s ({:.4f} s realtime)".format(avg_time, real_time))
         sys.stdout.flush()
 
 

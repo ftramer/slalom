@@ -275,7 +275,9 @@ namespace SGXDNN
 				//printf("temp:\n");
 				//std::cout << debugString<double, 1>(temp) << std::endl;
 				Tensor<bool, 0> eq = (temp == static_cast<double>(0)).all();
-				printf("eq: %d\n", eq.data()[0]);
+				if (TIMING) {
+					printf("eq: %d\n", eq.data()[0]);
+				}
 
 				sgx_time_t end = get_time();
 				double elapsed = get_elapsed_time(start, end);
@@ -346,7 +348,9 @@ namespace SGXDNN
 			depthwise_conv<double>(args, temp.data(), kernel_dbl.data(), out1.data());
 
 			sgx_time_t loop1 = get_time();
-			printf("after loop1 in %.4f s\n", get_elapsed_time(start, loop1));
+			if (TIMING) {
+				printf("after loop1 in %.4f s\n", get_elapsed_time(start, loop1));
+			}
 
 			mem_pool_->release(input.data());
 			temp.resize(0);
@@ -361,7 +365,9 @@ namespace SGXDNN
 			auto output_map = TensorMap<T, 4>(output_mem_, output_shape_);
 
 			sgx_time_t alloc = get_time();
-			printf("after alloc in %.4f s\n", get_elapsed_time(start, alloc));
+			if (TIMING) {
+				printf("after alloc in %.4f s\n", get_elapsed_time(start, alloc));
+			}
 
 			for (int i=0; i<batch; i++) {
 				for(int j=0; j<h_out*w_out*ch_out; j++) {
@@ -384,14 +390,15 @@ namespace SGXDNN
 				}
 			}
 
-			//out1 = out1.unaryExpr([&](const double x) { return mod(x, p_); });
-			//printf("out1:\n");
-			//std::cout << debugString<double, 1>(out1) << std::endl;
-			Tensor<bool, 0> eq = (out1 == static_cast<double>(0)).all();
-			printf("eq: %d\n", eq.data()[0]);
-
 			sgx_time_t loop2 = get_time();
-			printf("after loop2 in %.4f s\n", get_elapsed_time(start, loop2));
+			if (TIMING) {
+				printf("after loop2 in %.4f s\n", get_elapsed_time(start, loop2));
+			}
+
+			Tensor<bool, 0> eq = (out1 == static_cast<double>(0)).all();
+			if (TIMING) {
+				printf("eq: %d\n", eq.data()[0]);
+			}
 
 			r_b.resize(0,0);
 			out1.resize(0);
