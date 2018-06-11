@@ -9,7 +9,7 @@ This project is based on the following paper:
 ```
 Slalom: Fast, Verifiable and Private Execution of Neural Networks in Trusted Hardware
 Florian Tramèr and Dan Boneh
-[arXiv link]()
+[arXiv:1806.03287](http://arxiv.org/abs/1806.03287)
 ```
 
 ## Disclaimer
