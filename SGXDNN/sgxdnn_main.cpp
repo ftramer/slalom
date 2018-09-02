@@ -33,7 +33,7 @@ int p_int = (1 << 23) + (1 << 21) + 7;
 float p = (float) p_int;
 float mid = (float) (p_int / 2);
 
-// prime used for Freivald checks. Largest prime smaller than 2^24
+// prime used for Freivalds checks. Largest prime smaller than 2^24
 int p_verif = ((1 << 24) - 3);
 double inv_p_verif = 1.0 / p_verif;
 
