@@ -393,7 +393,7 @@ aes_stream(aes_stream_state *st, unsigned char *buf, size_t buf_len, bool shift)
  * loop over the data in which we:
  * 	- compute activations
  *  - compute the AES PRG stream and blind the activations
- *  - perform the Freivald checks for integrity
+ *  - perform the Freivalds checks for integrity
  *  - write the blinded data outside of the enclave
  */
 void aes_stream_fused(aes_stream_state *st, float* out, float* input, float* blind, size_t image_size, size_t ch,
