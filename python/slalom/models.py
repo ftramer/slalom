@@ -4,7 +4,7 @@ from keras.applications.vgg16 import VGG16
 from keras.applications.vgg19 import VGG19
 from keras.applications.mobilenet import MobileNet
 from keras.layers import Input
-from python.slalom.utils import preprocess_vgg
+from python.slalom.utils import preprocess_vgg, print_model_size
 from python.preprocessing.preprocessing_factory import get_preprocessing
 from python.slalom.mobilenet_sep import MobileNet_sep
 import numpy as np
@@ -62,6 +62,9 @@ def get_model(model_name, batch_size, include_top=True, double_prec=False):
         preprocess = lambda x: preprocess_func(x, h, w, dtype=tf.float64)
         K.set_floatx('float32')
 
+
+    print_model_size(model)
+    
     res = {}
     res['preprocess'] = preprocess
     res['bits_w'] = bits_w

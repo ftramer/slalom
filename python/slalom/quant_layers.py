@@ -333,7 +333,7 @@ def transform(model, bits_w, bits_x, log=False, quantize=True, verif_preproc=Fal
             pass
 
         elif isinstance(layer, MaxPooling2D):
-            assert(not slalom_privacy)
+            assert(not slalom or not slalom_privacy)
             new_model.add(MaxPooling2D.from_config(layer.get_config()))
 
         elif isinstance(layer, Activation):

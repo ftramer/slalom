@@ -5,7 +5,7 @@ from __future__ import print_function
 from python.preprocessing.vgg_preprocessing import _aspect_preserving_resize, \
     _central_crop, _RESIZE_SIDE_MIN
 from keras.applications.imagenet_utils import preprocess_input
-from keras.layers import Conv2D, Dense
+from keras.layers import *
 import tensorflow as tf
 import numpy as np
 from timeit import default_timer as timer
@@ -81,16 +81,29 @@ def size_to_mb(s, type_bytes=4):
 
 
 def print_model_size(model):
-    tot_size = 0.0
+    print("computing model size...")
+    tot_params_size = 0.0
+    tot_input_size = 0.0
+    tot_output_size = 0.0
 
     for layer in model.layers:
-        print(layer.name)
-        if layer.__class__ in [Conv2D, Dense]:
-            layer_size = np.prod(layer.output.get_shape().as_list()[1:])
-            tot_size += layer_size
-            print("Layer {}: {:.4f} MB".format(layer.name, size_to_mb(layer_size)))
+        if layer.__class__ in [Conv2D, Dense, DepthwiseConv2D]:
+            layer_output_size = np.prod(layer.output_shape[1:])
+            layer_input_size = np.prod(layer.input_shape[1:])
+            layer_params_size = np.sum([np.prod(w.shape) for w in layer.get_weights()])
+            tot_output_size += layer_output_size
+            tot_input_size += layer_input_size
+            tot_params_size += layer_params_size
+            print("Layer {}: inp: {:.3f} MB, out: {:.3f} MB, params: {:.3f} MB"
+                .format(layer.name, size_to_mb(layer_input_size), size_to_mb(layer_output_size), size_to_mb(layer_params_size)))
+        else:
+            if layer.__class__ not in \
+                [MaxPooling2D, Flatten, InputLayer, ZeroPadding2D, BatchNormalization, Activation, GlobalAveragePooling2D, Reshape, Dropout]:
+                print("Skipping layer {} ({})".format(layer.name, layer.__class__))
 
-    print("Total Size: {:.2f} MB".format(size_to_mb(tot_size)))
+    print("Total Params: {:.0f} params, {:.2f} MB".format(tot_params_size, size_to_mb(tot_params_size)))
+    print("Total Inputs: {:.0f} params, {:.2f} MB".format(tot_input_size, size_to_mb(tot_input_size)))
+    print("Total Outputs: {:.0f} params, {:.2f} MB".format(tot_output_size, size_to_mb(tot_output_size)))
 
 
 def preprocess_vgg(image, h=224, w=224, dtype=tf.float32):

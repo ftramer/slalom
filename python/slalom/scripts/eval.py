@@ -45,9 +45,10 @@ def main(_):
             assert not args.verify and not args.use_sgx
 
             device = '/cpu:0'
-            config = tf.ConfigProto(log_device_placement=False, device_count={'CPU': 1, 'GPU': 0})
-            config.intra_op_parallelism_threads = 1
-            config.inter_op_parallelism_threads = 1
+            config = tf.ConfigProto(log_device_placement=False)
+            #config = tf.ConfigProto(log_device_placement=False, device_count={'CPU': 1, 'GPU': 0})
+            #config.intra_op_parallelism_threads = 1
+            #config.inter_op_parallelism_threads = 1
 
         else:
             assert args.mode == 'sgxdnn'

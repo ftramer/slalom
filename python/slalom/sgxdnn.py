@@ -388,7 +388,7 @@ def model_to_json(sess, model, verif_preproc=False, slalom_privacy=False, dtype=
                 weights.append(bias.reshape(-1).astype(dtype))
     
         elif isinstance(layer, GlobalAveragePooling2D):
-            assert not slalom_privacy
+            #assert not slalom_privacy
             model_json['layers'].append({'name': 'GlobalAveragePooling2D'})
 
         elif isinstance(layer, Dropout):
