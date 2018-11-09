@@ -352,20 +352,20 @@ do {                                                                            
 			m2 = unblind(_mm256_load_ps(blinded_input + 16), _mm256_load_ps(blind + 16));	\
 			m3 = unblind(_mm256_load_ps(blinded_input + 24), _mm256_load_ps(blind + 24));	\
 \
-			func_z(params.res_z_temp, params.r_right_data, m0, i, j	  , ch);	\
-			func_z(params.res_z_temp, params.r_right_data, m1, i, j+8 , ch);	\
-			func_z(params.res_z_temp, params.r_right_data, m2, i, j+16, ch);	\
-			func_z(params.res_z_temp, params.r_right_data, m3, i, j+24, ch);	\
+			func_z(params.res_z, params.temp_z, params.r_right_data, m0, i, j	  , ch);	\
+			func_z(params.res_z, params.temp_z, params.r_right_data, m1, i, j+8 , ch);	\
+			func_z(params.res_z, params.temp_z, params.r_right_data, m2, i, j+16, ch);	\
+			func_z(params.res_z, params.temp_z, params.r_right_data, m3, i, j+24, ch);	\
 \
 			m0 = act_func(m0);	\
 			m1 = act_func(m1);	\
 			m2 = act_func(m2);	\
 			m3 = act_func(m3);	\
 \
-			func_x(params.res_x, params.kernel_r_data, m0, i, j   , image_size, ch);	\
-			func_x(params.res_x, params.kernel_r_data, m1, i, j+8 , image_size, ch);	\
-			func_x(params.res_x, params.kernel_r_data, m2, i, j+16, image_size, ch);	\
-			func_x(params.res_x, params.kernel_r_data, m3, i, j+24, image_size, ch);	\
+			func_x(params.res_x, params.temp_x, params.kernel_r_data, m0, i, j   , image_size, ch);	\
+			func_x(params.res_x, params.temp_x, params.kernel_r_data, m1, i, j+8 , image_size, ch);	\
+			func_x(params.res_x, params.temp_x, params.kernel_r_data, m2, i, j+16, image_size, ch);	\
+			func_x(params.res_x, params.temp_x, params.kernel_r_data, m3, i, j+24, image_size, ch);	\
 \
 			reblind(m0, _mm_cvtepi32_ps(r0), _mm_cvtepi32_ps(r1), out +  0);	\
 			reblind(m1, _mm_cvtepi32_ps(r2), _mm_cvtepi32_ps(r3), out +  8);	\
@@ -376,7 +376,7 @@ do {                                                                            
 			blinded_input += 32;	\
 			blind += 32;			\
 		}																					\
-		func_z_outer(params.res_z, params.res_z_temp, params.r_left_data, i, image_size);	\
+		func_z_outer(params.res_z, params.temp_z, params.r_left_data, i, image_size);	\
 	}																						\
     _st->counter = c0;										\
     c0 = _mm_xor_si128(c0, _mm_set_epi64x(1ULL << 63, 0));	\

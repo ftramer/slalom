@@ -289,13 +289,14 @@ namespace SGXDNN
 		}
 
 		// inner loop of X*W_r
-		inline void preproc_verif_X_inner(__m256 x, int i, int j) {
+		inline void preproc_verif_X_inner(__m256 x, int i, int j, __m256d* temp) {
 			__m256d x0, x1, kr0, kr1;
 			extract_two_doubles(x, x0, x1);
 
 			for (int r=0; r<REPS; r++) {
 				load_two_doubles(kernel_r_data_ + (r * image_size * ch_in + i * ch_in + j), kr0, kr1);
-				res_x[r] += double_dot_prod(x0, x1, kr0, kr1);
+				//res_x[r] += double_dot_prod(x0, x1, kr0, kr1);
+				temp[r] = double_dot_prod_fmadd(x0, x1, kr0, kr1, temp[r]);
 			}
 		}
 
@@ -316,33 +317,44 @@ namespace SGXDNN
 					}
 				}
 			} else {
+
+				__m256d temp[REPS];
+				for (int r=0; r<REPS; r++) {
+					temp[r] = _mm256_setzero_pd();	
+				}
+
 				for (int i=0; i<image_size; i++) {
 					for (int j=0; j<ch_in; j += 8) {
-						preproc_verif_X_inner(_mm256_load_ps(input + i * ch_in + j), i, j);
+						preproc_verif_X_inner(_mm256_load_ps(input + i * ch_in + j), i, j, temp);
 					}
+				}
+				
+				for (int r=0; r<REPS; r++) {
+					res_x[r] += sum_m256d(temp[r]);
 				}
 			}
 		}
 
 		// inner loop of r_left * (Z * r_right)
-		inline void preproc_verif_Z_inner( __m256 z, int i, int j) {
+		inline void preproc_verif_Z_inner( __m256 z, int i, int j, __m256d* temp) {
 			__m256d z0, z1, rr0, rr1;
 			extract_two_doubles(z, z0, z1);
 
 			for (int r=0; r<REPS; r++) {
 				load_two_doubles(r_right_data_ + (r*ch_out + j), rr0, rr1);
-				res_z_temp[r] += double_dot_prod(z0, z1, rr0, rr1);
+				temp[r] = double_dot_prod_fmadd(z0, z1, rr0, rr1, temp[r]);
 			}
 		}
 
 		// outer loop of r_left * (Z * r_right)
-		inline void preproc_verif_Z_outer(int i) {
+		inline void preproc_verif_Z_outer(int i, __m256d* temp) {
 			for (int r=0; r<REPS; r++) {
 				double rl = r_left_.data()[r*out_image_size + i];
-				double t = res_z_temp[r];
+				//double t = res_z_temp[r];
+				double t = sum_m256d(temp[r]);
 				REDUCE_MOD(t);
 				res_z[r] += rl * t;
-				res_z_temp[r] = 0;
+				//res_z_temp[r] = 0;
 			}
 		}
 
@@ -352,17 +364,22 @@ namespace SGXDNN
 			assert(ch_out % 8 == 0);
 			__m256 z, relu;
 
+			__m256d temp[REPS];
 			for (int i=0; i<out_image_size; i++) {
+				for (int r=0; r<REPS; r++) {
+    	        	temp[r] = _mm256_setzero_pd();
+        	    }
+
 				for (int j=0; j<ch_out; j+=8) {
 					z = _mm256_load_ps(extra_data + (i*ch_out + j));
 
 					relu = func(z);
 					_mm256_store_ps(output + (i*ch_out + j), relu);
 
-					preproc_verif_Z_inner(z, i, j);
+					preproc_verif_Z_inner(z, i, j, temp);
 				}
 
-				preproc_verif_Z_outer(i);
+				preproc_verif_Z_outer(i, temp);
 			}
 		}
 
@@ -372,13 +389,17 @@ namespace SGXDNN
 			assert(ch_out % 8 == 0);
 			__m256 z;
 
+			__m256d temp[REPS];
 			for (int i=0; i<out_image_size; i++) {
+				for (int r=0; r<REPS; r++) {
+                    temp[r] = _mm256_setzero_pd();
+                }
 				for (int j=0; j<ch_out; j+=8) {
 					z = _mm256_load_ps(extra_data + (i*ch_out + j));
-					preproc_verif_Z_inner(z, i, j);
+					preproc_verif_Z_inner(z, i, j, temp);
 				}
 
-				preproc_verif_Z_outer(i);
+				preproc_verif_Z_outer(i, temp);
 			}
 		}
 

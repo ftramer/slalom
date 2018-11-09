@@ -519,13 +519,15 @@ extern "C" {
 						} else {
 							params.pointwise_x = false;
 							params.res_x = model_float.mem_pool->alloc<double>(REPS);
+							for (int r=0; r<REPS; r++) {
+                                params.temp_x[r] = _mm256_setzero_pd();
+                            }
 							preproc_verif_bias(params.res_x, conv2d_next->bias_r_data_);
 						}
 
 						if (conv2d_prev->r_left_data_ == NULL) {
 							params.pointwise_z = true;
 							params.res_z = model_float.mem_pool->alloc<double>(h*w*REPS);
-							params.res_z_temp = params.res_z;
 							TensorMap<double, 1> res_z_map(params.res_z, h*w*REPS);
 							res_z_map.setZero();
 						} else {
@@ -533,9 +535,12 @@ extern "C" {
 							params.res_z = model_float.mem_pool->alloc<double>(REPS);
 							TensorMap<double, 1> res_z_map(params.res_z, REPS);
 							res_z_map.setZero();
-							params.res_z_temp = model_float.mem_pool->alloc<double>(REPS);
-							TensorMap<double, 1> res_z_temp_map(params.res_z_temp, REPS);
-							res_z_temp_map.setZero();
+							for (int r=0; r<REPS; r++) {
+                    			params.temp_z[r] = _mm256_setzero_pd();
+                			}
+							//params.res_z_temp = model_float.mem_pool->alloc<double>(REPS);
+							//TensorMap<double, 1> res_z_temp_map(params.res_z_temp, REPS);
+							//res_z_temp_map.setZero();
 						}
 					}
 
@@ -559,7 +564,6 @@ extern "C" {
 							if (TIMING) {
 								printf("r_out_r: %f, %f\n", mod_pos(params.res_z[0], p_verif), mod_pos(params.res_z[1], p_verif));
 							}
-							model_float.mem_pool->release(params.res_z_temp);
 						}
 
 						if (conv2d_next->r_left_data_ == NULL) {
@@ -572,6 +576,9 @@ extern "C" {
 							}
 						} else {
 							if (TIMING) {
+								for (int r=0; r<REPS; r++) {
+                    				params.res_x[r] += sum_m256d(params.temp_x[r]);
+                				}
 								printf("r_inp_wr: %f, %f\n", mod_pos(params.res_x[0], p_verif), mod_pos(params.res_x[1], p_verif));
 							}
 						}

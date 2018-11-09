@@ -169,8 +169,8 @@ void conv2d_verif_preproc(int batch, int h, int w, int ch_in, int ch_out, void* 
 	#pragma omp parallel
 	{
 
-		double res1_private[REPS];
-		double res2_private[REPS];
+		__m256d res1_private[REPS];
+		__m256d res2_private[REPS];
 
 		__m256d x0, x1, kr0, kr1;
 		#pragma omp for private(x0, x1, kr0, kr1)
@@ -179,26 +179,26 @@ void conv2d_verif_preproc(int batch, int h, int w, int ch_in, int ch_out, void* 
 
 			for (int r=0; r<REPS; r++) {
 				load_two_doubles(W_r_data + (r * image_size * ch_in + k), kr0, kr1);
-				res1_private[r] += double_dot_prod(x0, x1, kr0, kr1);
+				res1_private[r] = double_dot_prod_fmadd(x0, x1, kr0, kr1, res1_private[r]);
 			}
 		}
 
 		__m256d z0, z1, rr0, rr1;
 		#pragma omp for private(z0, z1, rr0, rr1)
 		for (int i=0; i<image_size; i++) {
-			double temp[REPS] = {0};
+			__m256d temp[REPS];
 
 			for (int j=0; j<ch_out; j+=8) {
 				load_two_doubles(Z_data + (i*ch_out + j), z0, z1);
 				for (int r=0; r<REPS; r++) {
 					load_two_doubles(r_right_data + (r*ch_out + j), rr0, rr1);
-					temp[r] += double_dot_prod(z0, z1, rr0, rr1);
+					temp[r] = double_dot_prod_fmadd(z0, z1, rr0, rr1, temp[r]);
 				}
 			}
 
 			for (int r=0; r<REPS; r++) {
 				double rl = r_left_data[r*image_size + i];
-				double t = temp[r];
+				double t = sum_m256d(temp[r]);
 				REDUCE_MOD(t);
 				res2_private[r] += rl * t;
 			}
@@ -208,8 +208,8 @@ void conv2d_verif_preproc(int batch, int h, int w, int ch_in, int ch_out, void* 
 		#pragma omp critical
 		{
 			for (int i=0; i<REPS; i++) {
-				res1_full.data()[i] += res1_private[i];
-				res2_full.data()[i] += res2_private[i];
+				res1_full.data()[i] += sum_m256d(res1_private[i]);
+				res2_full.data()[i] += sum_m256d(res2_private[i]);
 			}
 		}
 	}
