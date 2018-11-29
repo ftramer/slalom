@@ -199,16 +199,14 @@ extern "C" {
 
 			sgx_time_t layer_start = get_time();
 			#ifdef EIGEN_USE_THREADS
-			auto temp_output = model_float.layers[i]->fwd_verify(*in_ptr, aux_data[linear_idx], (void*) &device);
+			auto temp_output = model_float.layers[i]->fwd_verify(*in_ptr, aux_data, linear_idx, (void*) &device);
 			#else
-        	auto temp_output = model_float.layers[i]->fwd_verify(*in_ptr, aux_data[linear_idx]);
+        	auto temp_output = model_float.layers[i]->fwd_verify(*in_ptr, aux_data, linear_idx);
 			#endif
 
 			in_ptr = &temp_output;
 
-			if ( model_float.layers[i]->is_linear() ) {
-				linear_idx += 1;
-			}
+			linear_idx += model_float.layers[i]->num_linear();
 
 			sgx_time_t layer_end = get_time();
 			if (TIMING) {
@@ -251,12 +249,37 @@ extern "C" {
 
 		assert(model_float.layers.size() > 0);
 
+		std::vector<std::shared_ptr<Layer<float>>> new_layers;	
+		for (int i=0; i<model_float.layers.size(); i++) {
+			if (dynamic_cast<ResNetBlock<float>*>(model_float.layers[i].get()) != nullptr) {
+				auto resblock = dynamic_cast<ResNetBlock<float>*>(model_float.layers[i].get());
+				for (int j=0; j<resblock->get_path1().size(); j++) {
+					new_layers.push_back(resblock->get_path1()[j]);
+				}
+                for (int j=0; j<resblock->get_path2().size(); j++) {
+                    new_layers.push_back(resblock->get_path2()[j]);
+                }
+			} else {
+				new_layers.push_back(model_float.layers[i]);
+			}
+		}
+		model_float.layers.assign(new_layers.begin(), new_layers.end());
+
+		printf("MODEL LAYERS (%lu layers):\n", model_float.layers.size());
 		// get the indices of all the activation layers
 		for (int i=0; i<model_float.layers.size(); i++) {
+			printf("%s\n", model_float.layers[i].get()->name_.c_str());
 			if (dynamic_cast<Activation<float>*>(model_float.layers[i].get()) != nullptr) {
 				activation_idxs.push_back(i);
 			}
 		}
+
+		printf("=========\n");
+		printf("ACTIVATION IDXS:\n");
+		for (int i=0; i<activation_idxs.size(); i++) {
+			printf("%d\n", activation_idxs[i]);
+		}
+		printf("=========\n");
 
 		act_idx = 0;
 		verbose = false;
@@ -432,15 +455,19 @@ extern "C" {
 
 		if (layer_idx < model_float.layers.size() -1) {
 			next_layer = model_float.layers[layer_idx + 1];
-			//printf("in activation %s: prev layer: %s, curr layer: %s, next_layer: %s\n",
-			//		activation, prev_layer->name_.c_str(), curr_layer->name_.c_str(), next_layer->name_.c_str());
+			if (verbose) {
+				printf("\nin activation %s: prev layer: %s, curr layer: %s, next_layer: %s\n",
+						activation, prev_layer->name_.c_str(), curr_layer->name_.c_str(), next_layer->name_.c_str());
+			}
 		} else {
-			//printf("in activation %s: prev layer: %s, curr layer: %s\n",
-			//		activation, prev_layer->name_.c_str(), curr_layer->name_.c_str());
+			if (verbose) {
+				printf("\nin activation %s: prev layer: %s, curr layer: %s\n",
+					   activation, prev_layer->name_.c_str(), curr_layer->name_.c_str());
+			}
 		}
 
 		if (verbose || TIMING) {
-			printf("\ndecrypting in relu, size: %d, activation: %s\n", num_elements, activation);
+			printf("decrypting in relu, size: %d, activation: %s\n", num_elements, activation);
 		}
 
 		for (int i = 0; i<batch_size; i++) {
@@ -497,7 +524,9 @@ extern "C" {
 					int ch = std::max((int) out_shape[3], 1);
 
 					int batch = num_elements / (h*w*ch);
-					//printf("layer shape: %d, %d, %d, %d\n", batch, h, w, ch);
+					if (verbose) {
+						printf("layer shape: %d, %d, %d, %d\n", batch, h, w, ch);
+					}
 					assert(batch == 1);
 
 					integrityParams params;
@@ -703,8 +732,10 @@ extern "C" {
 		auto next_layer = model_float.layers[layer_idx + 1];
 		auto next2_layer = model_float.layers[layer_idx + 2];
 
-		//printf("in maxpoolrelu: prev layer: %s, curr layer: %s, next layer: %s\n",
-		//		prev_layer->name_.c_str(), curr_layer->name_.c_str(), next_layer->name_.c_str());
+		if (verbose) {
+			printf("\nin maxpoolrelu: prev layer: %s, curr layer: %s, next layer: %s\n",
+				   prev_layer->name_.c_str(), curr_layer->name_.c_str(), next_layer->name_.c_str());
+		}
 		act_idx += 1;
 
 		assert(dynamic_cast<Activation<float>*>(curr_layer.get()) != nullptr);
@@ -729,7 +760,7 @@ extern "C" {
 		double elapsed;
 
 		if (verbose || TIMING) {
-            printf("\ndecrypting in maxpoolrelu, size: %d\n", num_elements);
+            printf("decrypting in maxpoolrelu, size: %d\n", num_elements);
         }
 
 		for (int b = 0; b<batch_size; b++) {

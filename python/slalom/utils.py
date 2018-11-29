@@ -6,10 +6,12 @@ from python.preprocessing.vgg_preprocessing import _aspect_preserving_resize, \
     _central_crop, _RESIZE_SIDE_MIN
 from keras.applications.imagenet_utils import preprocess_input
 from keras.layers import *
+from python.slalom.resnet import ResNetBlock
 import tensorflow as tf
 import numpy as np
 from timeit import default_timer as timer
 import sys
+import itertools
 
 
 class Results(object):
@@ -86,7 +88,10 @@ def print_model_size(model):
     tot_input_size = 0.0
     tot_output_size = 0.0
 
-    for layer in model.layers:
+    all_layers = [[l] if not isinstance(l, ResNetBlock) else l.get_layers() for l in model.layers]
+    all_layers = list(itertools.chain.from_iterable(all_layers))
+
+    for layer in all_layers:
         if layer.__class__ in [Conv2D, Dense, DepthwiseConv2D]:
             layer_output_size = np.prod(layer.output_shape[1:])
             layer_input_size = np.prod(layer.input_shape[1:])
@@ -113,3 +118,10 @@ def preprocess_vgg(image, h=224, w=224, dtype=tf.float32):
     image.set_shape([h, w, 3])
     image = tf.cast(image, dtype)
     return preprocess_input(image)
+
+
+def get_all_layers(model):
+    all_layers = [[l] if not isinstance(l, ResNetBlock) else l.get_layers() for l in model.layers]
+    all_layers = list(itertools.chain.from_iterable(all_layers))
+    return all_layers
+

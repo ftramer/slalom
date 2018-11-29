@@ -29,39 +29,31 @@ namespace SGXDNN
         {
         }
 
-        TensorMap<T, 4> apply(TensorMap<T, 4> input_map, void* device_ptr = NULL)  {
-            auto result = apply_impl(input_map, device_ptr);
+        TensorMap<T, 4> apply(TensorMap<T, 4> input_map, void* device_ptr = NULL, bool release_input = true)  {
+            auto result = apply_impl(input_map, device_ptr, release_input);
             return result;
         }
 
-        TensorMap<T, 4> fwd_verify(TensorMap<T, 4> input_map, float* extra_data, void* device_ptr = NULL)  {
-            auto result = fwd_verify_impl(input_map, extra_data, device_ptr);
+        TensorMap<T, 4> fwd_verify(TensorMap<T, 4> input_map, float** extra_data, int linear_idx, void* device_ptr = NULL, bool release_input = true)  {
+            auto result = fwd_verify_impl(input_map, extra_data, linear_idx, device_ptr, release_input);
             return result;
         }
-
-        bool batch_verify(float* input_data, float* output_data, int batch_size)  {
-			return batch_verify_impl(input_data, output_data, batch_size);
-		}
 
         virtual array4d output_shape() = 0;
         virtual int output_size() = 0;
 
-		virtual bool is_linear() {
-			return false;
+		virtual int num_linear() {
+			return 0;
 		}
 
         std::string name_;
         const array4d input_shape_;
 
     protected:
-        virtual TensorMap<T, 4> apply_impl(TensorMap<T, 4> input_map, void* device_ptr = NULL) = 0;
+        virtual TensorMap<T, 4> apply_impl(TensorMap<T, 4> input_map, void* device_ptr = NULL, bool release_input = true) = 0;
 
-        virtual TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input_map, float* extra_data, void* device_ptr = NULL) {
-			return apply_impl(input_map, device_ptr);
-		}
-
-        virtual bool batch_verify_impl(float* input_data, float* extra_data, int batch_size) {
-			return true;
+        virtual TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input_map, float** extra_data, int linear_idx, void* device_ptr = NULL, bool release_input = true) {
+			return apply_impl(input_map, device_ptr, release_input);
 		}
     };
 }

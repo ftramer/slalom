@@ -91,14 +91,14 @@ namespace SGXDNN
 			return output_size_;
 		}
 
-		bool is_linear() override
+		int num_linear() override
         {
-            return true;
+            return 1;
         }
 
 	protected:
 
-		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL) override
+		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
 		{
 
 			int batch;
@@ -190,8 +190,9 @@ namespace SGXDNN
 			return output_map;
 		}
 
-		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float* extra_data, void* device_ptr) {
+		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float** extra_data, int linear_idx, void* device_ptr, bool release_input = true) {
 			int batch;
+			assert(-1);
 
 			if (input.dimension(0) == 1 && input.dimension(1) == 1)
 			{

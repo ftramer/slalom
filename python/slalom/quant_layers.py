@@ -1,5 +1,6 @@
 import tensorflow as tf
-from keras.layers import Conv2D, Dense, MaxPooling2D, Activation, ZeroPadding2D, Flatten, GlobalAveragePooling2D, Reshape, Dropout
+from keras.layers import Conv2D, Dense, MaxPooling2D, Activation, ZeroPadding2D, Flatten, GlobalAveragePooling2D, \
+    Reshape, Dropout, AveragePooling2D, Lambda
 from keras.layers import initializers
 from keras.layers.normalization import BatchNormalization
 from keras.utils import conv_utils
@@ -9,7 +10,11 @@ from keras.engine import InputLayer
 from keras.engine.topology import Layer
 from keras.applications.mobilenet import DepthwiseConv2D, relu6
 import keras.backend as K
+from python.slalom.resnet import ResNetBlock
+from python.slalom.utils import get_all_layers 
 import numpy as np
+import itertools
+
 
 # special Kernel to compute x + q * y (mod p)
 fmod_module = tf.load_op_library('./App/cuda_fmod.so')
@@ -74,6 +79,8 @@ class ActivationQ(Layer):
         return self.activation
 
     def call(self, inputs):
+        #inputs = tf.Print(inputs, [tf.reduce_sum(tf.abs(tf.cast(inputs, tf.float64)))], message="relu input: ")
+        #inputs = tf.Print(inputs, [], message="in ActivationQ with input shape: {}".format(inputs.get_shape().as_list()))
 
         if self.slalom:
             blind = self.queue.dequeue() if self.queue is not None else []
@@ -110,6 +117,7 @@ class ActivationQ(Layer):
                                          tf.greater_equal(log2(tf.reduce_max(tf.abs(outputs))), np.log2(MID))],
                                    message="Activation log: ")
 
+                #outputs = tf.Print(outputs, [tf.reduce_sum(tf.abs(tf.cast(outputs, tf.float64)))], message="relu output: ")
                 return outputs
 
             return inputs
@@ -160,26 +168,18 @@ class ActivationQ(Layer):
 
 
 # fuse batchnorm layers
-def fuse_bn(model):
+def fuse_bn(layers):
 
-    for (i, layer) in enumerate(model.layers):
+    for (i, layer) in enumerate(layers):
         if isinstance(layer, BatchNormalization):
-            conv = model.layers[i-1]
+            input = layer.get_input_at(0)
+            prev_layer = [l for l in layers if l.get_output_at(0) == input]
+            assert len(prev_layer) == 1
+            #conv = layers[i-1]
+            conv = prev_layer[0]
+
             assert isinstance(conv, Conv2D) or isinstance(conv, DepthwiseConv2D)
             assert layer.axis == 3 or layer.axis == -1
-
-            if isinstance(conv, DepthwiseConv2D):
-                bias_shape = (conv.depthwise_kernel.get_shape().as_list()[2],)
-            else:
-                bias_shape = (conv.filters,)
-
-            conv.add_weight(shape=bias_shape,
-                            initializer=initializers.get('zeros'),
-                            name='bias',
-                            regularizer=None,
-                            constraint=None)
-
-            conv.use_bias = True
 
             mean = layer.moving_mean
             var = layer.moving_variance
@@ -187,12 +187,30 @@ def fuse_bn(model):
             gamma = layer.gamma if layer.gamma is not None else 1.0
 
             w = conv.get_weights()[0]
+            b = 0
+
+            # conv layer had no bias
+            if not conv.use_bias:
+                if isinstance(conv, DepthwiseConv2D):
+                    bias_shape = (conv.depthwise_kernel.get_shape().as_list()[2],)
+                else:
+                    bias_shape = (conv.filters,)
+
+                conv.add_weight(shape=bias_shape,
+                                initializer=initializers.get('zeros'),
+                                name='bias',
+                                regularizer=None,
+                                constraint=None)
+
+                conv.use_bias = True
+            else:
+                b = conv.get_weights()[1]
 
             if isinstance(conv, DepthwiseConv2D):
                 w = np.transpose(w, (0, 1, 3, 2))
 
             new_w = K.get_session().run(w * gamma / (K.sqrt(var + layer.epsilon)))
-            new_b = K.get_session().run(-mean * gamma / (K.sqrt(var + layer.epsilon)) + beta)
+            new_b = K.get_session().run((b-mean) * gamma / (K.sqrt(var + layer.epsilon)) + beta)
 
             if isinstance(conv, DepthwiseConv2D):
                 new_w = np.transpose(new_w, (0, 1, 3, 2))
@@ -204,24 +222,28 @@ def fuse_bn(model):
 def transform(model, bits_w, bits_x, log=False, quantize=True, verif_preproc=False,
               slalom=False, slalom_integrity=False, slalom_privacy=False, sgxutils=None, queues=None):
 
-    queue_ctr = 0
     if slalom:
         assert(quantize)
 
     old_ops = K.get_session().graph.get_operations()
 
-    fuse_bn(model)
+    #all_layers = [[l] if not isinstance(l, ResNetBlock) else l.get_layers() for l in model.layers]
+    #all_layers = list(itertools.chain.from_iterable(all_layers))
+    all_layers = get_all_layers(model)
+    fuse_bn(all_layers)
 
-    new_model = Sequential()
+    queue_ctr = 0
     layers = model.layers
     layer_map = {}
     flattened = False
 
-    while layers:
-        layer = layers.pop(0)
+    def transform_layer(layer, next_layer, queue_ctr, flattened):
+        print("transform {} (next = {})".format(layer, next_layer))
+        new_layers = []
+        skip_next = False
 
         if isinstance(layer, InputLayer):
-            new_model.add(InputLayer.from_config(layer.get_config()))
+            new_layers.append(InputLayer.from_config(layer.get_config()))
 
         elif isinstance(layer, Conv2D) and not isinstance(layer, DepthwiseConv2D):
             conf = layer.get_config()
@@ -230,19 +252,20 @@ def transform(model, bits_w, bits_x, log=False, quantize=True, verif_preproc=Fal
 
             # if the next layer is a pooling layer, create a fused activation
             maxpool_params = None
-            if slalom and layers and isinstance(layers[0], MaxPooling2D):
-                mp = layers.pop(0)
-                assert(layer.activation == relu)
+            if slalom and isinstance(next_layer, MaxPooling2D):
+                mp = next_layer
+                assert (layer.activation == relu)
                 maxpool_params = mp.get_config()
+                skip_next = True
 
             act_layer = None
             if act != "linear":
                 conf['activation'] = "linear"
 
-                if slalom and layers and isinstance(layers[0], GlobalAveragePooling2D):
+                if slalom and isinstance(next_layer, GlobalAveragePooling2D):
                     assert layer.activation in [relu, relu6]
-                    layers.pop(0)
                     act = "avgpool" + act
+                    skip_next = True
 
                 act_layer = ActivationQ(act, bits_w, bits_x, maxpool_params=maxpool_params, log=log,
                                         quantize=quantize, slalom=slalom, slalom_integrity=slalom_integrity,
@@ -254,17 +277,17 @@ def transform(model, bits_w, bits_x, log=False, quantize=True, verif_preproc=Fal
             conf['bits_x'] = bits_x
             conf['log'] = log
             conf['quantize'] = quantize
-            conf['slalom'] = slalom 
+            conf['slalom'] = slalom
             conf['slalom_integrity'] = slalom_integrity
             conf['slalom_privacy'] = slalom_privacy
             conf['sgxutils'] = sgxutils
 
             new_layer = Conv2DQ.from_config(conf)
-            new_model.add(new_layer)
+            new_layers.append(new_layer)
             layer_map[new_layer] = layer
 
             if act_layer is not None:
-                new_model.add(act_layer)
+                new_layers.append(act_layer)
 
         elif isinstance(layer, DepthwiseConv2D):
             conf = layer.get_config()
@@ -281,7 +304,7 @@ def transform(model, bits_w, bits_x, log=False, quantize=True, verif_preproc=Fal
             conf['sgxutils'] = sgxutils
 
             new_layer = DepthwiseConv2DQ.from_config(conf)
-            new_model.add(new_layer)
+            new_layers.append(new_layer)
             layer_map[new_layer] = layer
 
         elif isinstance(layer, Dense):
@@ -313,60 +336,72 @@ def transform(model, bits_w, bits_x, log=False, quantize=True, verif_preproc=Fal
                 conf['filters'] = layer.units
                 conf['kernel_size'] = 1
                 if not flattened:
-                    _, h, w, ch_out = new_model.layers[-1].output_shape
-                    h_in = h*w*ch_out 
-                    new_model.add(Reshape((1, 1, h_in)))
+                    h_in = int(layer.input_spec.axes[-1])
+                    new_layers.append(Reshape((1, 1, h_in)))
                     flattened = True
                 new_layer = Conv2DQ.from_config(conf)
-                new_model.add(new_layer)
+                new_layers.append(new_layer)
                 layer_map[new_layer] = layer
 
             else:
                 new_layer = DenseQ.from_config(conf)
-                new_model.add(new_layer)
+                new_layers.append(new_layer)
                 layer_map[new_layer] = layer
 
             if act_layer is not None:
-                new_model.add(act_layer)
+                new_layers.append(act_layer)
 
         elif isinstance(layer, BatchNormalization):
             pass
 
         elif isinstance(layer, MaxPooling2D):
-            assert(not slalom or not slalom_privacy)
-            new_model.add(MaxPooling2D.from_config(layer.get_config()))
+            assert (not slalom or not slalom_privacy)
+            new_layers.append(MaxPooling2D.from_config(layer.get_config()))
+
+        elif isinstance(layer, AveragePooling2D):
+            assert (not slalom or not slalom_privacy)
+            new_layers.append(AveragePooling2D.from_config(layer.get_config()))
+            new_layers.append(Lambda(lambda x: K.round(x)))
 
         elif isinstance(layer, Activation):
-            assert layer.activation in [relu6, softmax]
+            assert layer.activation in [relu6, relu, softmax]
 
             queue = None if queues is None else queues[queue_ctr]
             queue_ctr += 1
 
-            act_func = "relu6" if layer.activation == relu6 else "softmax"
-            if slalom and layers and isinstance(layers[0], GlobalAveragePooling2D):
-                layers.pop(0)
-                assert layer.activation == relu6
+            act_func = "relu6" if layer.activation == relu6 else "relu" if layer.activation == relu else "softmax"
+            if slalom and isinstance(next_layer, GlobalAveragePooling2D):
+                #assert layer.activation == relu6
                 act_func = "avgpoolrelu6"
+                skip_next = True
 
-            new_model.add(ActivationQ(act_func, bits_w, bits_x, log=log,
+            maxpool_params = None
+            if slalom and (isinstance(next_layer, MaxPooling2D) or isinstance(next_layer, AveragePooling2D)):
+                mp = next_layer
+                assert (layer.activation == relu)
+                maxpool_params = mp.get_config()
+                skip_next = True
+
+            new_layers.append(ActivationQ(act_func, bits_w, bits_x, log=log,
+                                      maxpool_params=maxpool_params,
                                       quantize=quantize, slalom=slalom,
                                       slalom_integrity=slalom_integrity,
                                       slalom_privacy=slalom_privacy,
                                       sgxutils=sgxutils, queue=queue))
- 
+
         elif isinstance(layer, ZeroPadding2D):
             if quantize:
                 # merge with next layer
-                conv = layers[0]
+                conv = next_layer 
                 assert isinstance(conv, Conv2D) or isinstance(conv, DepthwiseConv2D)
                 assert conv.padding == 'valid'
                 conv.padding = 'same'
             else:
-                new_model.add(ZeroPadding2D.from_config(layer.get_config()))
+                new_layers.append(ZeroPadding2D.from_config(layer.get_config()))
 
         elif isinstance(layer, Flatten):
             if not verif_preproc:
-                new_model.add(Flatten.from_config(layer.get_config()))
+                new_layers.append(Flatten.from_config(layer.get_config()))
 
         elif isinstance(layer, GlobalAveragePooling2D):
             assert not slalom
@@ -375,19 +410,58 @@ def transform(model, bits_w, bits_x, log=False, quantize=True, verif_preproc=Fal
             conf['bits_x'] = bits_x
             conf['log'] = log
             conf['quantize'] = quantize
-            new_model.add(GlobalAveragePooling2DQ.from_config(conf))
+            new_layers.append(GlobalAveragePooling2DQ.from_config(conf))
 
         elif isinstance(layer, Reshape):
-            new_model.add(Reshape.from_config(layer.get_config()))
+            new_layers.append(Reshape.from_config(layer.get_config()))
 
         elif isinstance(layer, Dropout):
             pass
 
+        elif isinstance(layer, ResNetBlock):
+            #assert not slalom
+
+            path1 = []
+            path2 = []
+            for l in layer.path1:
+                lq, queue_ctr, _, _ = transform_layer(l, None, queue_ctr, flattened)
+                path1.extend(lq)
+
+            for l in layer.path2:
+                lq, queue_ctr, _, _ = transform_layer(l, None, queue_ctr, flattened)
+                path2.extend(lq)
+
+            [actq], queue_ctr, flattened, skip_next = transform_layer(layer.merge_act, next_layer, queue_ctr, flattened)
+            new_layer = ResNetBlock(layer.kernel_size, layer.filters, layer.stage, layer.block, layer.identity,
+                                    layer.strides, path1=path1, path2=path2, merge_act=actq, 
+                                    quantize=quantize, bits_w=bits_w, bits_x=bits_x,
+                                    slalom=slalom, slalom_integrity=slalom_integrity, slalom_privacy=slalom_privacy)
+
+            new_layers.append(new_layer)
         else:
             raise AttributeError("Don't know how to handle layer {}".format(layer))
 
+        return new_layers, queue_ctr, flattened, skip_next
+
+    new_model = Sequential()
+    skip_next = False
+    while layers:
+        layer = layers.pop(0)
+        next_layer = layers[0] if len(layers) else None
+
+        if not skip_next:
+            new_layers, queue_ctr, flattened, skip_next = transform_layer(layer, next_layer, queue_ctr, flattened)
+            for new_layer in new_layers:
+                new_model.add(new_layer)
+        else:
+            skip_next = False
+
+    print(new_model.summary())
+
     # copy over (and potentially quantize) all the weights
-    for layer in new_model.layers:
+    new_layers = get_all_layers(new_model)
+
+    for layer in new_layers:
         if layer in layer_map:
             src_layer = layer_map[layer]
 
@@ -420,12 +494,13 @@ def transform(model, bits_w, bits_x, log=False, quantize=True, verif_preproc=Fal
     new_ops = [op for op in K.get_session().graph.get_operations() if op not in old_ops]
     linear_ops_in = [tf.reshape(op.inputs[0], [-1]) for op in new_ops if op.type in ['Conv2D', 'MatMul', 'DepthwiseConv2dNative']]
     linear_ops_out = [tf.reshape(op.outputs[0], [-1]) for op in new_ops if op.type in ['BiasAdd']]
+
     return new_model, linear_ops_in, linear_ops_out
 
 
 # build operations for computing unblinding factors
 def build_blinding_ops(model, queues, batch_size):
-    linear_layers = [layer for layer in model.layers if hasattr(layer, 'kernel') or hasattr(layer, 'depthwise_kernel')]
+    linear_layers = get_all_linear_layers(model)
     print("preparing blinding factors for {} layers...".format(len(linear_layers)))
 
     assert(len(queues) == len(linear_layers))
@@ -445,7 +520,7 @@ def build_blinding_ops(model, queues, batch_size):
 def prepare_blinding_factors(sess, model, sgxutils, in_placeholders, zs, out_placeholders, queue_ops,
                              batch_size, num_batches=1, inputs=None, temps=None, out_funcs=None):
 
-    linear_layers = [layer for layer in model.layers if hasattr(layer, 'kernel') or hasattr(layer, 'depthwise_kernel')]
+    linear_layers = get_all_linear_layers(model)
 
     for i in range(num_batches):
         if inputs is not None:
@@ -570,6 +645,8 @@ class Conv2DQ(Conv2D):
         return super(Conv2DQ, self).compute_output_shape(input_shape)
 
     def call(self, inputs, early_return=None):
+        #inputs = tf.Print(inputs, [tf.reduce_sum(tf.abs(tf.cast(inputs, tf.float64)))], message="conv input: ")
+
         if early_return is not None:
             assert early_return in ['prod', 'bias']
 
@@ -583,8 +660,7 @@ class Conv2DQ(Conv2D):
             if self.use_bias and not early_return == 'prod':
                 outputs = K.bias_add(outputs, self.bias_q)
         else:
-            
-            if not self.is_pointwise:
+            if not self.is_pointwise or self.strides != (1, 1):
                 # split inputs into two halves to avoid overflowing the single-precision floating point representation
                 # inputs = inputs_low + q * inputs_high
 
@@ -639,6 +715,7 @@ class Conv2DQ(Conv2D):
             # Conv(Z, w)
             return tf.cast(remainder(outputs, P), tf.float32)
 
+        #outputs = tf.Print(outputs, [tf.reduce_sum(tf.abs(tf.cast(outputs, tf.float64)))], message="conv output: ")
         return outputs
 
     def get_config(self):
@@ -701,6 +778,7 @@ class DenseQ(Dense):
                                       name='bias_q')
 
     def call(self, inputs, early_return=None):
+        #inputs = tf.Print(inputs, [tf.reduce_sum(tf.abs(tf.cast(inputs, tf.float64)))], message="dense input: ")
 
         if early_return is not None:
             assert early_return in ['prod', 'bias']
@@ -733,6 +811,7 @@ class DenseQ(Dense):
         if self.slalom_privacy:
             outputs = tf.cast(remainder(outputs, P), tf.float32)
 
+        #outputs = tf.Print(outputs, [tf.reduce_sum(tf.abs(tf.cast(outputs, tf.float64)))], message="dense output: ")
         return outputs
 
     def get_config(self):
@@ -843,7 +922,7 @@ class DepthwiseConv2DQ(DepthwiseConv2D):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-# quantized average pooling layer
+# quantized global average pooling layer
 class GlobalAveragePooling2DQ(GlobalAveragePooling2D):
 
     def __init__(self, bits_w, bits_x, quantize=True, log=False, **kwargs):
@@ -881,3 +960,24 @@ class GlobalAveragePooling2DQ(GlobalAveragePooling2D):
         }
         base_config = super(GlobalAveragePooling2DQ, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+
+def get_all_linear_layers(model):
+    layers = []
+    all_layers = get_all_layers(model)
+    for idx, layer in enumerate(all_layers):
+        # check if linear layer
+        if hasattr(layer, 'kernel') or hasattr(layer, 'depthwise_kernel'):
+            if layer.activation.__name__ != "linear":
+                layers.append(layer)
+            else:
+                next_layer = all_layers[idx+1] if idx+1 < len(all_layers) else None
+
+                if isinstance(next_layer, BatchNormalization):
+                    next_layer = all_layers[idx+2] if idx+2 < len(all_layers) else None
+
+                if isinstance(next_layer, Activation) or isinstance(next_layer, ActivationQ):
+                    layers.append(layer)
+
+    return layers
+ 

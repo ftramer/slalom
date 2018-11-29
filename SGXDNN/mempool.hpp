@@ -11,7 +11,7 @@ namespace SGXDNN
 	{
 	public:
 		explicit MemPool(size_t max_chunks, size_t max_chunk_size) {
-
+			allocated_bytes = 0;
 		}
 
 		virtual ~MemPool(){
@@ -21,6 +21,7 @@ namespace SGXDNN
 		template <typename T>
 		T* alloc(size_t size) {
 			T* ptr = (T*) Eigen::internal::aligned_malloc(size * sizeof(T));
+			allocated_bytes += size * sizeof(T);
 			return ptr;
 		}
 
@@ -34,6 +35,9 @@ namespace SGXDNN
 		void release(T* mem_loc) {
 			Eigen::internal::aligned_free(mem_loc);
 		}
+
+		long allocated_bytes;
+
 	};
 }
 #endif

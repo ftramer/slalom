@@ -15,7 +15,7 @@ from keras import backend
 
 from python import imagenet
 from python.slalom.models import get_model
-from python.slalom.quant_layers import transform, build_blinding_ops, prepare_blinding_factors
+from python.slalom.quant_layers import transform, build_blinding_ops, prepare_blinding_factors, get_all_linear_layers
 from python.slalom.utils import Results
 from python.slalom.sgxdnn import model_to_json, SGXDNNUtils
 
@@ -33,6 +33,7 @@ def main(_):
 
         device = '/gpu:0'
         config = tf.ConfigProto(log_device_placement=False)
+        config.allow_soft_placement = True
         config.gpu_options.per_process_gpu_memory_fraction = 0.90
         config.gpu_options.allow_growth = True
 
@@ -56,7 +57,7 @@ def main(_):
             #sgxutils = SGXDNNUtils(args.use_sgx, num_enclaves=batch_size)
             sgxutils = SGXDNNUtils(args.use_sgx, num_enclaves=1)
 
-            num_linear_layers = len([l for l in model.layers if hasattr(l, 'kernel') or hasattr(l, 'depthwise_kernel')])
+            num_linear_layers = len(get_all_linear_layers(model))
             if blinded and not simulate:
                 queues = [tf.FIFOQueue(capacity=num_batches + 1, dtypes=[tf.float32]) for _ in range(num_linear_layers)]
             else:
@@ -69,7 +70,8 @@ def main(_):
                                                              sgxutils=sgxutils, queues=queues)
 
             dtype = np.float32
-            model_json, weights = model_to_json(sess, model, dtype=dtype, verif_preproc=True, slalom_privacy=blinded)
+            model_json, weights = model_to_json(sess, model, dtype=dtype, verif_preproc=True, slalom_privacy=blinded,
+                                                bits_w=model_info['bits_w'], bits_x=model_info['bits_x'])
             sgxutils.load_model(model_json, weights, dtype=dtype, verify=True, verify_preproc=True)
 
             num_classes = np.prod(model.output.get_shape().as_list()[1:])
@@ -129,7 +131,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('model_name', type=str,
-                        choices=['vgg_16', 'vgg_19', 'inception_v3', 'mobilenet', 'mobilenet_sep'])
+                        choices=['vgg_16', 'vgg_19', 'inception_v3', 'mobilenet', 'mobilenet_sep', 
+                                 'resnet_18', 'resnet_34', 'resnet_50', 'resnet_101', 'resnet_152'])
     parser.add_argument('--input_dir', type=str,
                         default='../imagenet/',
                         help='Input directory with images.')

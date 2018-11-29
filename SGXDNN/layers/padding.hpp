@@ -31,6 +31,9 @@ namespace SGXDNN
             output_shape_ = {0, out_rows_, out_cols_, input_depth_};
             output_size_ = out_rows_ * out_cols_ * input_depth_;
 
+            printf("in Padding2D with input_shape = (%d, %d, %d), pad = (%d, %d), out_shape = (%d, %d, %d)\n",
+                   input_rows_, input_cols_, input_depth_, pad_rows_, pad_cols_, out_rows_, out_cols_, input_depth_);
+
 			paddings_[0] = std::make_pair(0, 0);
 			paddings_[1] = std::make_pair(pad_rows_, pad_rows_);
 			paddings_[2] = std::make_pair(pad_cols_, pad_cols_);
@@ -49,7 +52,7 @@ namespace SGXDNN
 
     protected:
 
-        TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL) override
+        TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
         {
             int batch = input.dimension(0);
             output_shape_[0] = batch;
