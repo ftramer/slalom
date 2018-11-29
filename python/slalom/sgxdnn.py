@@ -6,8 +6,10 @@ import numpy as np
 
 import keras
 from keras import activations
-from keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Lambda, DepthwiseConv2D, GlobalAveragePooling2D, Dropout, Reshape, ZeroPadding2D
+from keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, DepthwiseConv2D, GlobalAveragePooling2D, Dropout, \
+    Reshape, ZeroPadding2D, AveragePooling2D, Lambda
 from python.slalom.quant_layers import Conv2DQ, DenseQ, DepthwiseConv2DQ, ActivationQ
+from python.slalom.resnet import ResNetBlock
 import tensorflow as tf
 
 
@@ -208,7 +210,8 @@ class SGXDNNUtils(object):
 
 
 # convert a model to JSON format and potentially precompute integrity check vectors
-def model_to_json(sess, model, verif_preproc=False, slalom_privacy=False, dtype=np.float32):
+def model_to_json(sess, model, verif_preproc=False, slalom_privacy=False, dtype=np.float32,
+                  bits_w=0, bits_x=0):
 
     def get_activation_name(layer):
         if layer.activation is not None:
@@ -216,26 +219,30 @@ def model_to_json(sess, model, verif_preproc=False, slalom_privacy=False, dtype=
         else:
             return ''
 
-    model_json = {'layers': []}
-    weights = []
     p = ((1 << 24) - 3) 
-    r_max = (1 << 20)
+    r_max = (1 << 19)
     reps = 2
 
-    for idx, layer in enumerate(model.layers):
+    def layer_to_json(layer):
+        json = {}
+        layer_weights = []
+
         if isinstance(layer, keras.layers.InputLayer):
-            model_json['layers'].append({'name': 'Input', 'shape': layer.batch_input_shape})
+            json = {'name': 'Input', 'shape': layer.batch_input_shape}
 
         elif isinstance(layer, Conv2D) and not isinstance(layer, DepthwiseConv2D):
-            model_json['layers'].append({'name': 'Conv2D',
-                                         'kernel_size': layer.kernel.get_shape().as_list(),
-                                         'strides': layer.strides,
-                                         'padding': layer.padding,
-                                         'activation': get_activation_name(layer)})
+            json = {'name': 'Conv2D',
+                    'kernel_size': layer.kernel.get_shape().as_list(),
+                    'strides': layer.strides,
+                    'padding': layer.padding,
+                    'activation': get_activation_name(layer),
+                    'bits_w': layer.bits_w, 'bits_x': layer.bits_x}
 
             if isinstance(layer, Conv2DQ):
                 kernel = sess.run(layer.kernel_q)
                 bias = sess.run(layer.bias_q)
+
+                print(layer, layer.input_shape, layer.output_shape, kernel.shape)
 
                 if verif_preproc:
                     # precompute W*r or r_left * W * r_right
@@ -252,11 +259,13 @@ def model_to_json(sess, model, verif_preproc=False, slalom_privacy=False, dtype=
                         w_r = w_r.T
                         w_r = np.fmod(w_r, p).astype(np.float32)
                         assert np.max(np.abs(w_r)) < 2 ** 52
-                        b_r = np.fmod(np.dot(bias.astype(np.float64), r_right.T.astype(np.float64)), p).astype(np.float32)
-                    else:    
-                        r_left = np.random.randint(low=-r_max, high=r_max+1, size=(reps, h_out*w_out)).astype(np.float32)
-                        r_right = np.random.randint(low=-r_max, high=r_max+1, size=(reps, ch_out)).astype(np.float32)
-                        w_r = np.zeros((reps, h*w, ch_in)).astype(np.float32)
+                        b_r = np.fmod(np.dot(bias.astype(np.float64), r_right.T.astype(np.float64)), p).astype(
+                            np.float32)
+                    else:
+                        r_left = np.random.randint(low=-r_max, high=r_max + 1, size=(reps, h_out * w_out)).astype(
+                            np.float32)
+                        r_right = np.random.randint(low=-r_max, high=r_max + 1, size=(reps, ch_out)).astype(np.float32)
+                        w_r = np.zeros((reps, h * w, ch_in)).astype(np.float32)
                         b_r = np.zeros(reps).astype(np.float32)
 
                         X = np.zeros((1, h, w, ch_in)).astype(np.float64)
@@ -269,53 +278,57 @@ def model_to_json(sess, model, verif_preproc=False, slalom_privacy=False, dtype=
                         for i in range(reps):
                             curr_r_left = r_left[i].astype(np.float64)
                             curr_r_right = r_right[i].astype(np.float64)
-                            print("sum(curr_r_left) = {}".format(np.sum(curr_r_left)))
-                            print("sum(curr_r_right) = {}".format(np.sum(curr_r_right)))
+                            #print("sum(curr_r_left) = {}".format(np.sum(curr_r_left)))
+                            #print("sum(curr_r_right) = {}".format(np.sum(curr_r_right)))
 
                             w_right = kernel.astype(np.float64).reshape((-1, ch_out)).dot(curr_r_right)
-                            print("sum(w_right) = {}".format(np.sum(w_right)))
-                            assert np.max(np.abs(w_right)) < 2**52
+                            #print("sum(w_right) = {}".format(np.sum(w_right)))
+                            assert np.max(np.abs(w_right)) < 2 ** 52
 
-                            w_r_i = sess.run(dz, feed_dict={x_ph: X, w_ph: w_right.reshape(k_w, k_h, ch_in, 1), y_ph: curr_r_left.reshape((1, h_out, w_out, 1))})
-                            print("sum(w_r) = {}".format(np.sum(w_r_i.astype(np.float64))))
-                            w_r[i] = np.fmod(w_r_i, p).astype(np.float32).reshape((h*w, ch_in))
+                            w_r_i = sess.run(dz, feed_dict={x_ph: X, w_ph: w_right.reshape(k_w, k_h, ch_in, 1),
+                                                            y_ph: curr_r_left.reshape((1, h_out, w_out, 1))})
+                            #print("sum(w_r) = {}".format(np.sum(w_r_i.astype(np.float64))))
+                            w_r[i] = np.fmod(w_r_i, p).astype(np.float32).reshape((h * w, ch_in))
                             assert np.max(np.abs(w_r[i])) < 2 ** 52
-                            print("sum(w_r) = {}".format(np.sum(w_r[i].astype(np.float64))))
-                            b_r[i] = np.fmod(np.sum(curr_r_left) * np.fmod(np.dot(bias.astype(np.float64), curr_r_right), p), p).astype(np.float32)
-                            print("sum(b_r) = {}".format(np.sum(b_r[i].astype(np.float64))))
+                            #print("sum(w_r) = {}".format(np.sum(w_r[i].astype(np.float64))))
+                            b_r[i] = np.fmod(
+                                np.sum(curr_r_left) * np.fmod(np.dot(bias.astype(np.float64), curr_r_right), p),
+                                p).astype(np.float32)
+                            #print("sum(b_r) = {}".format(np.sum(b_r[i].astype(np.float64))))
 
                     print("r_left: {}".format(r_left.astype(np.float64).sum()))
                     print("r_right: {}".format(r_right.astype(np.float64).sum()))
                     print("w_r: {}".format(w_r.astype(np.float64).sum()))
                     print("b_r: {}".format(b_r.astype(np.float64).sum()))
-                    weights.append(r_left.reshape(-1))
-                    weights.append(r_right.reshape(-1))
-                    weights.append(w_r.reshape(-1))
-                    weights.append(b_r.reshape(-1))
+                    layer_weights.append(r_left.reshape(-1))
+                    layer_weights.append(r_right.reshape(-1))
+                    layer_weights.append(w_r.reshape(-1))
+                    layer_weights.append(b_r.reshape(-1))
             else:
                 kernel = layer.kernel.eval(sess)
                 bias = layer.bias.eval(sess)
                 print("sum(abs(conv_w)): {}".format(np.abs(kernel).sum()))
 
             if not verif_preproc:
-                weights.append(kernel.reshape(-1).astype(dtype))
-                weights.append(bias.reshape(-1).astype(dtype))
+                layer_weights.append(kernel.reshape(-1).astype(dtype))
+                layer_weights.append(bias.reshape(-1).astype(dtype))
 
         elif isinstance(layer, MaxPooling2D):
-            model_json['layers'].append({'name': 'MaxPooling2D',
-                                         'pool_size': layer.pool_size,
-                                         'strides': layer.strides,
-                                         'padding': layer.padding})
+            json = {'name': 'MaxPooling2D', 'pool_size': layer.pool_size,
+                    'strides': layer.strides, 'padding': layer.padding}
+
+        elif isinstance(layer, AveragePooling2D):
+            json = {'name': 'AveragePooling2D', 'pool_size': layer.pool_size,
+                    'strides': layer.strides, 'padding': layer.padding}
 
         elif isinstance(layer, Flatten):
-            model_json['layers'].append({'name': 'Flatten'})
+            json = {'name': 'Flatten'}
 
         elif isinstance(layer, Dense):
             assert not (slalom_privacy and verif_preproc)
-            model_json['layers'].append({'name': 'Dense',
-                                         'kernel_size': layer.kernel.get_shape().as_list(),
-                                         'pointwise_conv': False,
-                                         'activation': get_activation_name(layer)})
+            json = {'name': 'Dense', 'kernel_size': layer.kernel.get_shape().as_list(),
+                    'pointwise_conv': False, 'activation': get_activation_name(layer),
+                    'bits_w': layer.bits_w, 'bits_x': layer.bits_x}
 
             if isinstance(layer, DenseQ):
                 kernel = sess.run(layer.kernel_q).reshape(-1).astype(dtype)
@@ -325,18 +338,12 @@ def model_to_json(sess, model, verif_preproc=False, slalom_privacy=False, dtype=
                 kernel = layer.kernel.eval(sess).reshape(-1).astype(dtype)
                 bias = layer.bias.eval(sess).reshape(-1).astype(dtype)
             print("sum(abs(dense_w)): {}".format(np.abs(kernel).sum()))
-            weights.append(kernel)
-            weights.append(bias)
-
-        elif isinstance(layer, Lambda):
-            assert False
+            layer_weights.append(kernel)
+            layer_weights.append(bias)
 
         elif isinstance(layer, DepthwiseConv2D):
-            model_json['layers'].append({'name': 'DepthwiseConv2D',
-                                         'kernel_size': layer.depthwise_kernel.get_shape().as_list(),
-                                         'strides': layer.strides,
-                                         'padding': layer.padding,
-                                         'activation': get_activation_name(layer)})
+            json = {'name': 'DepthwiseConv2D', 'kernel_size': layer.depthwise_kernel.get_shape().as_list(),
+                    'strides': layer.strides, 'padding': layer.padding, 'activation': get_activation_name(layer)}
 
             if isinstance(layer, DepthwiseConv2DQ):
                 kernel = sess.run(layer.kernel_q)
@@ -347,10 +354,11 @@ def model_to_json(sess, model, verif_preproc=False, slalom_privacy=False, dtype=
                     k_w, k_h, ch_in, _ = kernel.shape
                     h, w = layer.input_shape[1], layer.input_shape[2]
                     h_out, w_out = layer.output_shape[1], layer.output_shape[2]
-                    
+
                     np.random.seed(0)
-                    r_left = np.random.randint(low=-r_max, high=r_max+1, size=(reps, h_out*w_out)).astype(np.float32)
-                    w_r = np.zeros((reps, h*w, ch_in)).astype(np.float32)
+                    r_left = np.random.randint(low=-r_max, high=r_max + 1, size=(reps, h_out * w_out)).astype(
+                        np.float32)
+                    w_r = np.zeros((reps, h * w, ch_in)).astype(np.float32)
                     b_r = np.zeros((reps, ch_in)).astype(np.float32)
 
                     X = np.zeros((1, h, w, ch_in)).astype(np.float64)
@@ -362,21 +370,23 @@ def model_to_json(sess, model, verif_preproc=False, slalom_privacy=False, dtype=
 
                     for i in range(reps):
                         curr_r_left = r_left[i].astype(np.float64)
-                        print("r_left: {}".format(curr_r_left.astype(np.float64).sum()))
-                        w_r_i = sess.run(dz, feed_dict={x_ph: X, w_ph: kernel.astype(np.float64), y_ph: curr_r_left.reshape((1, h_out, w_out, 1)).repeat(ch_in, axis=-1)})
-                        w_r[i] = np.fmod(w_r_i, p).astype(np.float32).reshape((h*w, ch_in))
+                        #print("r_left: {}".format(curr_r_left.astype(np.float64).sum()))
+                        w_r_i = sess.run(dz, feed_dict={x_ph: X, w_ph: kernel.astype(np.float64),
+                                                        y_ph: curr_r_left.reshape((1, h_out, w_out, 1)).repeat(ch_in,
+                                                                                                               axis=-1)})
+                        w_r[i] = np.fmod(w_r_i, p).astype(np.float32).reshape((h * w, ch_in))
                         assert np.max(np.abs(w_r[i])) < 2 ** 52
-                        print("sum(w_r) = {}".format(np.sum(w_r[i].astype(np.float64))))
+                        #print("sum(w_r) = {}".format(np.sum(w_r[i].astype(np.float64))))
 
                         b_r[i] = np.fmod(np.sum(curr_r_left) * bias.astype(np.float64), p)
-                        print("sum(b_r) = {}".format(np.sum(b_r[i].astype(np.float64))))
+                        #print("sum(b_r) = {}".format(np.sum(b_r[i].astype(np.float64))))
 
                     print("r_left: {}".format(r_left.astype(np.float64).sum()))
                     print("w_r: {}".format(w_r.astype(np.float64).sum()))
                     print("b_r: {}".format(b_r.astype(np.float64).sum()))
-                    weights.append(r_left.reshape(-1))
-                    weights.append(w_r.reshape(-1))
-                    weights.append(b_r.reshape(-1))
+                    layer_weights.append(r_left.reshape(-1))
+                    layer_weights.append(w_r.reshape(-1))
+                    layer_weights.append(b_r.reshape(-1))
 
             else:
                 kernel = layer.depthwise_kernel.eval(sess)
@@ -384,35 +394,76 @@ def model_to_json(sess, model, verif_preproc=False, slalom_privacy=False, dtype=
             print("sum(abs(depthwise_w)): {}".format(np.abs(kernel).sum()))
 
             if not verif_preproc:
-                weights.append(kernel.reshape(-1).astype(dtype))
-                weights.append(bias.reshape(-1).astype(dtype))
-    
+                layer_weights.append(kernel.reshape(-1).astype(dtype))
+                layer_weights.append(bias.reshape(-1).astype(dtype))
+
         elif isinstance(layer, GlobalAveragePooling2D):
-            assert not slalom_privacy
-            model_json['layers'].append({'name': 'GlobalAveragePooling2D'})
+           json = {'name': 'GlobalAveragePooling2D'}
 
         elif isinstance(layer, Dropout):
             pass
 
+        elif isinstance(layer, Lambda):
+            pass
+
         elif isinstance(layer, Reshape):
-            model_json['layers'].append({'name': 'Reshape', 'shape': layer.target_shape})
+            json = {'name': 'Reshape', 'shape': layer.target_shape}
 
         elif isinstance(layer, ZeroPadding2D):
-            model_json['layers'].append({'name': 'ZeroPadding2D',
-                                         'padding': layer.padding})
+            json = {'name': 'ZeroPadding2D',
+                    'padding': layer.padding if not hasattr(layer.padding, '__len__') else layer.padding[0]}
 
         elif isinstance(layer, ActivationQ):
-            model_json['layers'].append({'name': 'Activation',
-                                         'type': layer.activation_name()})
+            json = {'name': 'Activation', 'type': layer.activation_name(), 'bits_w': layer.bits_w}
 
             if hasattr(layer, 'maxpool_params') and layer.maxpool_params is not None:
-                model_json['layers'].append({'name': 'MaxPooling2D',
-                                             'pool_size': layer.maxpool_params['pool_size'],
-                                             'strides': layer.maxpool_params['strides'],
-                                             'padding': layer.maxpool_params['padding']})
+                json2 = {'name': 'MaxPooling2D', 'pool_size': layer.maxpool_params['pool_size'],
+                        'strides': layer.maxpool_params['strides'], 'padding': layer.maxpool_params['padding']}
+                
+                json = [json, json2]
+
+        elif isinstance(layer, ResNetBlock):
+            path1 = []
+            path2 = []
+            for l in layer.path1:
+                if isinstance(l, Conv2D) or isinstance(l, ActivationQ):
+                    js, w = layer_to_json(l)
+                    path1.append(js)
+                    layer_weights.extend(w)
+
+            for l in layer.path2:
+                if isinstance(l, Conv2D) or isinstance(l, ActivationQ):
+                    js, w = layer_to_json(l)
+                    path2.append(js)
+                    layer_weights.extend(w)
+            
+            json = {'name': 'ResNetBlock', 'identity': layer.identity, 'bits_w': layer.bits_w, 'bits_x': layer.bits_x,
+                    'path1': path1, 'path2': path2}
+
+            if slalom_privacy:
+                json = [json]
+                js2, _ = layer_to_json(layer.merge_act)
+                if isinstance(js2, dict):
+                    json.append(js2)
+                else:
+                    json.extend(js2)
 
         else:
             raise NameError("Unknown layer {}".format(layer))
+
+        return json, layer_weights
+
+    model_json = {'layers': [], 'shift_w': 2**bits_w, 'shift_x': 2**bits_x, 'max_tensor_size': 224*224*64}
+    weights = []
+    for idx, layer in enumerate(model.layers):
+        json, layer_weights = layer_to_json(layer)
+
+        if json:
+            if isinstance(json, dict):
+                model_json['layers'].append(json)
+            else:
+                model_json['layers'].extend(json)
+        weights.extend(layer_weights)
 
     return model_json, weights
 

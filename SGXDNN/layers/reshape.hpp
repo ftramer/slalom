@@ -40,7 +40,7 @@ namespace SGXDNN
 
 	protected:
 
-		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL) override
+		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
 		{
 			int batch = input.dimension(0);
             output_shape_[0] = batch;

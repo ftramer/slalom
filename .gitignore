@@ -49,3 +49,6 @@ slalom_app
 results/
 *.json
 
+.idea/
+.cproject
+.project

@@ -22,11 +22,19 @@ namespace SGXDNN
 				const std::string& name,
 				const array4d input_shape,
 				const std::string& activation_type,
+				const int bits_w,
+				const int bits_x,
 				bool verif_preproc
 				): Layer<T>(name, input_shape),
 				activation_type_(activation_type),
+				bits_w_(bits_w),
+				bits_x_(bits_x),
 				verif_preproc_(verif_preproc)
 		{
+			shift_w = (1 << bits_w_);
+			shift_x = (1 << bits_x_);
+			inv_shift = 1.0/shift_w;
+
 			if (!(activation_type == "relu" or
 				  activation_type == "softmax" or
 				  activation_type == "linear" or
@@ -61,7 +69,7 @@ namespace SGXDNN
 
 	protected:
 
-		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL) override
+		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
 		{
 			#ifdef EIGEN_USE_THREADS
 			Eigen::ThreadPoolDevice* d = static_cast<Eigen::ThreadPoolDevice*>(device_ptr);
@@ -100,29 +108,33 @@ namespace SGXDNN
 			}
 		}
 
-		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float* extra_data, void* device_ptr = NULL) override
+		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float** extra_data, int linear_idx, void* device_ptr = NULL, bool release_input = true) override
 		{
 			if (verif_preproc_) {
 				return input;
 			}
 
 			if (activation_type_ == "relu6") {
-				T shift = 1.0/256;
-				input = (input.cwiseMax(static_cast<T>(0)).cwiseMin(static_cast<T>(6 * 256 * 256)) * shift).round();
+				input = (input.cwiseMax(static_cast<T>(0)).cwiseMin(static_cast<T>(6 * shift_w * shift_x)) * inv_shift).round();
 				return input;
 			}
 			else if (activation_type_ == "relu") {
-				T shift = 1.0/256;
-                input = (input.cwiseMax(static_cast<T>(0)) * shift).round();
+                input = (input.cwiseMax(static_cast<T>(0)) * inv_shift).round();
                 return input;
 			}
 			return input;
 		}
 
 		const std::string activation_type_;
+		const int bits_w_;
+		const int bits_x_;
 		bool verif_preproc_;
 		array4d output_shape_;
 		int output_size_;
+
+		int shift_w;
+		int shift_x;
+		T inv_shift;
 	};
 }
 #endif

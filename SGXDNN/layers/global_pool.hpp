@@ -43,7 +43,7 @@ namespace SGXDNN
 
 	protected:
 
-		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL) override
+		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
 		{
 			int batch = input.dimension(0);
             output_shape_[0] = batch;
@@ -58,7 +58,7 @@ namespace SGXDNN
             return output_map;
 		}
 		
-		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float* extra_data, void* device_ptr = NULL) override
+		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float** extra_data, int linear_idx, void* device_ptr = NULL, bool release_input = true) override
 		{
 			int batch = input.dimension(0);
             output_shape_[0] = batch;

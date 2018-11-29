@@ -2,18 +2,11 @@ from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
 
-import os
-import warnings
-
 from keras.models import Model
 from keras.layers import *
-from keras import initializers, regularizers, constraints
-from keras.utils import conv_utils
-from keras.utils.data_utils import get_file
 from keras.engine import get_source_inputs
 from keras.applications import imagenet_utils
 from keras.applications.imagenet_utils import _obtain_input_shape
-from keras.applications.imagenet_utils import decode_predictions
 from keras import backend as K
 
 
@@ -172,23 +165,3 @@ def _depthwise_conv_block(inputs, pointwise_conv_filters, alpha,
                activation='relu',
                name='conv_pw_%d' % block_id)(x)
     return x
-    '''
-    x = DepthwiseConv2D((3, 3),
-                        padding='valid',
-                        depth_multiplier=depth_multiplier,
-                        strides=strides,
-                        use_bias=False,
-                        name='conv_dw_%d' % block_id)(x)
-    x = BatchNormalization(
-        axis=channel_axis, name='conv_dw_%d_bn' % block_id)(x)
-    x = Activation(relu6, name='conv_dw_%d_relu' % block_id)(x)
-
-    x = Conv2D(pointwise_conv_filters, (1, 1),
-               padding='same',
-               use_bias=False,
-               strides=(1, 1),
-               name='conv_pw_%d' % block_id)(x)
-    x = BatchNormalization(
-        axis=channel_axis, name='conv_pw_%d_bn' % block_id)(x)
-    return Activation(relu6, name='conv_pw_%d_relu' % block_id)(x)
-    '''

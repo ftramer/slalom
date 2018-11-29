@@ -203,14 +203,14 @@ namespace SGXDNN
 			return output_size_;
 		}
 
-		bool is_linear() override
+		int num_linear() override
 		{
-			return true;
+			return 1;
 		}
 
 	protected:
 
-		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL) override
+		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
 		{
 			#ifndef USE_SGX
 			Eigen::ThreadPoolDevice* d = static_cast<Eigen::ThreadPoolDevice*>(device_ptr);
@@ -244,9 +244,10 @@ namespace SGXDNN
 			return output_map;
 		}
 
-		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float* extra_data, void* device_ptr = NULL) override
+		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float** aux_data, int linear_idx, void* device_ptr = NULL, bool release_input = true) override
         {
 
+			float* extra_data = aux_data[linear_idx];
 			const int batch = input.dimension(0);
             output_shape_[0] = batch;
  

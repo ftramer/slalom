@@ -109,6 +109,16 @@ inline double double_dot_prod(__m256d a0, __m256d a1, __m256d b0, __m256d b1) {
 	return ((double*)&sum0)[0] + ((double*)&sum0)[2] + ((double*)&sum1)[0] + ((double*)&sum1)[2];
 }
 
+inline __m256d double_dot_prod_fmadd(__m256d a0, __m256d a1, __m256d b0, __m256d b1, __m256d accu) {
+	accu = _mm256_fmadd_pd(a0, b0, accu);
+	return _mm256_fmadd_pd(a1, b1, accu);
+}
+
+inline double sum_m256d(__m256d x) {
+	__m256d s = _mm256_hadd_pd(x, x);
+	return ((double*)&s)[0] + ((double*)&s)[2];
+}
+
 // parameters for the fused AES + integrity check
 typedef struct integrityParams {
 	bool integrity;
@@ -116,16 +126,17 @@ typedef struct integrityParams {
 	bool pointwise_z;
 	double* res_x;
 	double* res_z;
-	double* res_z_temp;
 	float* kernel_r_data;
 	double* r_left_data;
 	double* r_right_data;
+	__m256d temp_x[REPS];
+	__m256d temp_z[REPS];
 } integrityParams;
 
 // empty dummy functions if we don't care about integrity
-void inline empty_verif_x(double* res_x, float* kernel_r_data, __m256 x, int i, int j, int image_size, int ch) {};
-void inline empty_verif_z(double* res_z, double* r_right_data, __m256 z, int i, int j, int ch) {};
-void inline empty_verif_z_outer(double* res_z, double* res_z_temp, double* r_left_data, int i, int image_size) {};
+void inline empty_verif_x(double* res_x, __m256d* temp_x, float* kernel_r_data, __m256 x, int i, int j, int image_size, int ch) {};
+void inline empty_verif_z(double* res_z, __m256d* temp_z, double* r_right_data, __m256 z, int i, int j, int ch) {};
+void inline empty_verif_z_outer(double* res_z, __m256d* temp_z, double* r_left_data, int i, int image_size) {};
 
 // Adapted from layers/conv2d.hpp
 inline void preproc_verif_pointwise_bias(double* res_x, double* bias_r_data, int image_size) {
@@ -136,7 +147,7 @@ inline void preproc_verif_pointwise_bias(double* res_x, double* bias_r_data, int
 	}
 }
 
-inline void preproc_verif_pointwise_X_inner(double* res_x, float* kernel_r_data, __m256 x, int i, int j, int image_size, int ch_in) {
+inline void preproc_verif_pointwise_X_inner(double* res_x, __m256d* temp_x, float* kernel_r_data, __m256 x, int i, int j, int image_size, int ch_in) {
 	__m256d x0, x1, kr0, kr1;
 	extract_two_doubles(x, x0, x1);
 
@@ -147,7 +158,7 @@ inline void preproc_verif_pointwise_X_inner(double* res_x, float* kernel_r_data,
 
 }
 
-inline void preproc_verif_pointwise_Z_inner(double* res_z, double* r_right_data, __m256 z, int i, int j, int ch_out) {
+inline void preproc_verif_pointwise_Z_inner(double* res_z, __m256d* temp_z, double* r_right_data, __m256 z, int i, int j, int ch_out) {
 	__m256d z0, z1, rr0, rr1;
 	extract_two_doubles(z, z0, z1);
 
@@ -163,33 +174,37 @@ inline void preproc_verif_bias(double* res_x, double* bias_r_data) {
 	}
 }
 
-inline void preproc_verif_X_inner(double* res_x, float* kernel_r_data, __m256 x, int i, int j, int image_size, int ch_in) {
+inline void preproc_verif_X_inner(double* res_x, __m256d* temp_x, float* kernel_r_data, __m256 x, int i, int j, int image_size, int ch_in) {
 	__m256d x0, x1, kr0, kr1;
 	extract_two_doubles(x, x0, x1);
 
 	for (int r=0; r<REPS; r++) {
 		load_two_doubles(kernel_r_data + (r * image_size * ch_in + i * ch_in + j), kr0, kr1);
-		res_x[r] += double_dot_prod(x0, x1, kr0, kr1);
+		//res_x[r] += double_dot_prod(x0, x1, kr0, kr1);
+		temp_x[r] = double_dot_prod_fmadd(x0, x1, kr0, kr1, temp_x[r]);
 	}
 }
 
-inline void preproc_verif_Z_inner(double* res_z_temp, double* r_right_data, __m256 z, int i, int j, int ch_out) {
+inline void preproc_verif_Z_inner(double* res_z, __m256d* temp_z, double* r_right_data, __m256 z, int i, int j, int ch_out) {
 	__m256d z0, z1, rr0, rr1;
 	extract_two_doubles(z, z0, z1);
 
 	for (int r=0; r<REPS; r++) {
 		load_two_doubles(r_right_data + (r*ch_out + j), rr0, rr1);
-		res_z_temp[r] += double_dot_prod(z0, z1, rr0, rr1);
+		//res_z_temp[r] += double_dot_prod(z0, z1, rr0, rr1);
+		temp_z[r] = double_dot_prod_fmadd(z0, z1, rr0, rr1, temp_z[r]);
 	}
 }
 
-inline void preproc_verif_Z_outer(double* res_z, double* res_z_temp, double* r_left_data, int i, int out_image_size) {
+inline void preproc_verif_Z_outer(double* res_z, __m256d* temp_z, double* r_left_data, int i, int out_image_size) {
 	for (int r=0; r<REPS; r++) {
 		double rl = r_left_data[r*out_image_size + i];
-		double t = res_z_temp[r];
+		//double t = res_z_temp[r];
+		double t = sum_m256d(temp_z[r]);
 		REDUCE_MOD(t);
 		res_z[r] += rl * t;
-		res_z_temp[r] = 0;
+		//res_z_temp[r] = 0;
+		temp_z[r] = _mm256_setzero_pd();
 	}
 }
 

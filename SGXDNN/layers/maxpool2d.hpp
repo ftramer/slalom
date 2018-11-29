@@ -17,7 +17,7 @@ namespace SGXDNN
 	void fast_maxpool(T* input, T* output, 
 					  int batch, int input_rows_, int input_cols_, int input_depth_, int out_rows_, int out_cols_,
 					  int window_rows_, int window_cols_, int pad_rows_, int pad_cols_, int row_stride_, int col_stride_,
-					  bool add_relu = false)
+					  bool avg_pool = false)
 	{
 		typedef Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>> ConstEigenMatrixMap;
 		typedef Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>> EigenMatrixMap;
@@ -39,7 +39,7 @@ namespace SGXDNN
 		//    and updates the corresponding column(s) in output_as_matrix with the
 		//    max value.
 		auto shard = [&in_mat, &out_mat, input_rows_, input_cols_, input_depth_, out_rows_, out_cols_,
-					  window_rows_, window_cols_, pad_rows_, pad_cols_, row_stride_, col_stride_, add_relu](long start, long limit) {
+					  window_rows_, window_cols_, pad_rows_, pad_cols_, row_stride_, col_stride_, avg_pool](long start, long limit) {
 			const int in_rows = input_rows_;
 			const int in_cols = input_cols_;
 			const int window_rows = window_rows_;
@@ -57,7 +57,12 @@ namespace SGXDNN
 		  		const int output_image_size = out_height * out_width * input_depth;
 		  		EigenMatrixMap out_shard(out_mat.data() + start * output_image_size,
 								   1, (limit - start) * output_image_size);
-		  		out_shard.setConstant(Eigen::NumTraits<T>::lowest());
+
+				if (avg_pool) {
+		  			out_shard.setConstant((T) 0.0);
+				} else {
+		  			out_shard.setConstant(Eigen::NumTraits<T>::lowest());
+				}
 			}
 
 			for (int b = start; b < limit; ++b) {
@@ -83,8 +88,8 @@ namespace SGXDNN
 					  	  (out_offset_batch + ph) * out_width;
 					  for (int pw = w_start; pw < w_end; ++pw) {
 				  	    const int out_offset = out_offset_base + pw;
-						if (add_relu) {
-				  	    	out_mat.col(out_offset) = (out_mat.col(out_offset).cwiseMax(in_mat.col(in_offset).cwiseMax(static_cast<T>(0))) / static_cast<T>(256)).array().round();
+						if (avg_pool) {
+							out_mat.col(out_offset) += in_mat.col(in_offset) / ((T)(window_rows * window_cols));
 						} else {
 				  	    	out_mat.col(out_offset) = out_mat.col(out_offset).cwiseMax(in_mat.col(in_offset));
 						}
@@ -110,6 +115,7 @@ namespace SGXDNN
                 const int row_stride,
                 const int col_stride,
                 const Eigen::PaddingType& padding,
+				const bool avg_pool,
 				MemPool* mem_pool
                 ): Layer<T>(name, input_shape),
                 window_rows_(window_rows),
@@ -117,8 +123,8 @@ namespace SGXDNN
                 row_stride_(row_stride),
                 col_stride_(col_stride),
                 padding_(padding),
+				avg_pool_(avg_pool),
 				mem_pool_(mem_pool)
-				//output_mem_(nullptr)
 		{
 			input_rows_ = input_shape[1];
 			input_cols_ = input_shape[2];
@@ -131,6 +137,9 @@ namespace SGXDNN
 
 			output_shape_ = {0, out_rows_, out_cols_, input_depth_};
 			output_size_ = out_rows_ * out_cols_ * input_depth_;
+
+			printf("in Pool2D with window = (%d, %d), stride = (%d, %d), padding = %d, out_shape = (%d, %d, %d), pad = (%d, %d)\n",
+			        window_rows_, window_cols_, row_stride_, col_stride_, padding_, out_rows_, out_cols_, input_depth_, pad_rows_, pad_cols_);
 		}
 
 		array4d output_shape() override
@@ -145,7 +154,7 @@ namespace SGXDNN
 
 	protected:
 
-		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL) override
+		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
 		{
 			int batch = input.dimension(0);
 			output_shape_[0] = batch;
@@ -154,12 +163,24 @@ namespace SGXDNN
 
 			fast_maxpool(input.data(), output_map.data(),
                          batch, input_rows_, input_cols_, input_depth_, out_rows_, out_cols_,
-                      	 window_rows_, window_cols_, pad_rows_, pad_cols_, row_stride_, col_stride_);
+                      	 window_rows_, window_cols_, pad_rows_, pad_cols_, row_stride_, col_stride_, avg_pool_);
 
 			mem_pool_->release(input.data());
-
 			return output_map;
 		}
+
+		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float** aux_data, int linear_idx, void* device_ptr = NULL, bool release_input = true) override
+        {
+            auto output_map = apply_impl(input, device_ptr, release_input);
+
+            if (avg_pool_) {
+                output_map = output_map.round();
+            }
+
+            return output_map;
+        }
+
+
 		int input_rows_;
 		int input_cols_;
 		int input_depth_;
@@ -174,6 +195,7 @@ namespace SGXDNN
 		const int window_cols_;
 		const int row_stride_;
 		const int col_stride_;
+		const bool avg_pool_;
 		MemPool* mem_pool_;
 
 		array4d output_shape_;
