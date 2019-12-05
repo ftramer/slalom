@@ -206,7 +206,6 @@ extern "C"
 
     void predict_float(unsigned long int eid, float* input, float* output, int batch_size) {
 
-		#pragma omp parallel for num_threads(3)
 		for (int i=0; i<batch_size; i++) {
 			//sgx_status_t ret = ecall_predict_float(eid, input, output, batch_size);
 			sgx_status_t ret = ecall_predict_float(eid, input, output, 1);
