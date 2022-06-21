@@ -7,7 +7,7 @@ h5py==2.8.0
 html5lib==0.9999999
 Keras==2.1.5
 Markdown==2.6.11
-numpy==1.14.4
+numpy==1.22.0
 protobuf==3.5.2.post1
 PyYAML==5.1
 scipy==1.1.0
