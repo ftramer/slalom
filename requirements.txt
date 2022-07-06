@@ -4,7 +4,7 @@ bleach==3.1.4
 gast==0.2.0
 grpcio==1.12.1
 h5py==2.8.0
-html5lib==0.9999999
+html5lib==0.999999999
 Keras==2.1.5
 Markdown==2.6.11
 numpy==1.14.4
